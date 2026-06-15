@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>TČ Expert PRO</title>
+    <meta name="theme-color" content="#0c0f17" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+    <style id="module-style" data-module="CSS">CSS</style>
+</head>
+
+<body class="mode-user">
+
+<div class="blob" id="blob1"></div>
+<div class="blob" id="blob2"></div>
+<div class="blob" id="blob3"></div>
+
+
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <div id="loadingText" style="font-weight: 800; color: var(--accent);">Zpracovávám data...</div>
+    </div>
+    <div id="toastContainer" class="toast-container"></div>
+
+    <div class="top-floating-container">
+        <button id="floatingExport" class="floating-export" onclick="App.openExport()">📥</button>
+        <div id="floatingDate" class="floating-date">
+            <button class="nav-btn-mini" onclick="App.smartNav(-1)">❮</button>
+            <div id="navLabel" onclick="App.openCalendar('main')">DNES (24h)</div>
+            <button id="btnNextDay" class="nav-btn-mini" onclick="App.smartNav(1)" disabled>❯</button>
+            <button id="btnNowMini" class="nav-btn-mini" onclick="App.resetToToday()" style="display:none; font-size: 0.75rem; padding: 2px 8px; margin-left: 5px;">DNES</button>
+        </div>
+        <button id="floatingSettings" class="floating-settings" onclick="App.openSettings()">⚙️</button>
+    </div>
+
+    <!-- EXPORT MODAL -->
+    <div id="exportModal" class="modal-overlay" onclick="App.closeExport(event)">
+        <div class="modal-content modal-tall">
+            <div class="modal-header flex-noshrink">
+                <div class="modal-title">📥 Pokročilý Export Dat</div>
+                <button class="modal-close" onclick="App.closeExport(null)">&times;</button>
+            </div>
+            <div class="export-controls-compact" style="flex-shrink: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: flex-end; margin-bottom: 15px; background: rgba(255,255,255,0.035); padding: 12px; border-radius: 12px; border: 1px solid var(--border);">
+                <div class="export-col flex-col-6">
+                    <label class="lbl-header">Od</label>
+                    <div id="exportStartBtn" class="export-input-mini date-btn" onclick="App.openCalendar('exportStart')">-</div>
+                    <input type="hidden" id="exportStart" />
+                </div>
+                <div class="export-col flex-col-6">
+                    <label class="lbl-header">Do</label>
+                    <div id="exportEndBtn" class="export-input-mini date-btn" onclick="App.openCalendar('exportEnd')">-</div>
+                    <input type="hidden" id="exportEnd" />
+                </div>
+                <div class="export-col flex-col-6">
+                    <label class="lbl-header">Typ exportu</label>
+                    <select id="exportType" class="export-input-mini">
+                        <option value="cycles">Cykly a Stavy</option>
+                        <option value="daily">Denní souhrny</option>
+                        <option value="monthly">Měsíční souhrny</option>
+                        <option value="raw_enriched">Obohacená surová data</option>
+                        <option value="service_report">Kompletní servisní zpráva</option>
+                    </select>
+                </div>
+                <div class="export-col flex-col-6">
+                    <label for="exportIncludeSummary" style="font-size: 0.65rem; color: var(--text-dim); font-weight: 800; text-transform: uppercase; cursor: pointer; padding-left: 2px;">Servisní hlavička</label>
+                    <div style="display: flex; align-items: center; height: 35px; padding-left: 2px;">
+                        <input type="checkbox" id="exportIncludeSummary" checked style="width: 20px; height: 20px; cursor: pointer;">
+                    </div>
+                </div>
+                <div class="export-col btn-col" style="display: flex; flex-direction: column; gap: 6px; grid-column: 1 / -1;">
+                    <button class="export-btn-mini" onclick="App.generateExport()">🔄 Sestavit</button>
+                </div>
+            </div>
+            <textarea id="exportTextarea" style="width:100%; flex: 1; min-height: 0; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: white; padding: 12px; border-radius: 12px; font-family: monospace; font-size: 0.75rem; margin-bottom: 15px; outline: none; resize: none; white-space: pre;" readonly></textarea>
+            <div style="display: flex; gap: 10px; justify-content: flex-end; flex-shrink: 0;">
+                <button class="compact-btn" onclick="App.copyExport()">📋 Kopírovat text</button>
+                <button class="compact-btn" onclick="App.shareExport()">🔗 Sdílet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CALENDAR MODAL -->
+    <div id="calendarModal" class="modal-overlay" onclick="App.closeCalendar(event)">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <div class="modal-title">📅 Výběr data</div>
+                <button class="modal-close" onclick="App.closeCalendar(null)">&times;</button>
+            </div>
+            <div class="cal-nav">
+                <button class="cal-btn" onclick="App.changeCalMonth(-1)">&#9664;</button>
+                <div id="calMonthLabel" class="cal-month">-</div>
+                <button class="cal-btn" onclick="App.changeCalMonth(1)">&#9654;</button>
+            </div>
+            <div class="cal-modes" style="display: flex; gap: 5px; justify-content: center; margin-bottom: 10px;">
+                <button class="view-btn" onclick="App.setCalMode('health',this)">Zdraví</button>
+                <button class="view-btn active" onclick="App.setCalMode('temp',this)">Teplota</button>
+                <button class="view-btn" onclick="App.setCalMode('cost',this)">Ekonomika</button>
+            </div>
+            <div class="cal-grid">
+                <div class="cal-day-head">PO</div><div class="cal-day-head">ÚT</div><div class="cal-day-head">ST</div>
+                <div class="cal-day-head">ČT</div><div class="cal-day-head">PÁ</div><div class="cal-day-head">SO</div>
+                <div class="cal-day-head">NE</div>
+            </div>
+            <div id="calDays" class="cal-grid"></div>
+        </div>
+    </div>
+
+    <!-- CURVE MODAL -->
+    <div id="curveModal" class="modal-overlay" onclick="App.closeCurveModal(event)">
+        <div class="modal-content modal-tall">
+            <div class="modal-header flex-noshrink">
+                <div class="modal-title">📈 Ekvitermní křivka a Bivalence</div>
+                <button class="modal-close" onclick="App.closeCurveModal(null)">&times;</button>
+            </div>
+            <div class="card" style="display: flex; flex-direction: column; gap: 8px; padding: 5px; border: none; background: transparent; box-shadow: none; flex: 1; min-height: 0;">
+                <div id="bivalenceMsg" style="text-align: center; font-size: 0.75rem; padding: 6px; border-radius: 8px; background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning); color: var(--warning); display: none; flex-shrink: 0;"></div>
+                <div style="height: 150px; background: rgba(0,0,0,0.2); border-radius: 12px; padding: 5px; position: relative; flex-shrink: 0;">
+                    <canvas id="curveChart"></canvas>
+                </div>
+                <div id="curveTable" style="flex: 1; min-height: 0; overflow-y: auto; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.035); padding: 5px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settingsModal" class="modal-overlay" onclick="App.closeSettings(event)">
+        <div class="modal-content" style="max-height: 92vh; overflow: hidden; display: flex; flex-direction: column;">
+            <div class="modal-header flex-noshrink">
+                <div class="modal-title">⚙️ Konfigurace systému a Limity</div>
+                <button class="modal-close" onclick="App.closeSettings(null)">&times;</button>
+            </div>
+            <div class="settings-grid" style="overflow-y: auto; flex: 1; min-height: 0; padding-right: 5px; align-content: start;">
+                <div class="settings-block">
+                    <div class="block-header"><i>🌍</i> Lokalita a Dům</div>
+                    <div class="input-row"><label>Vytápěná plocha (m²)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="floorArea" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Celková vytápěná podlahová plocha domu v m². Slouží pro výpočet měrné tepelné ztráty (W/m²).</div>
+                    <div class="input-row"><label>Cílová teplota v domě (°C)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="targetIndoorTemp" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Požadovaná teplota v interiéru (obvykle 20–22 °C). Základ pro výpočet tepelných ztrát a HDD.</div>
+                    <div class="input-row"><label>Výpočtová teplota zimy (°C)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="designTemp" step="1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Výpočtová zimní teplota pro dimenzování (norma ČR: −12 až −15 °C dle lokality).</div>
+                    <div class="input-row"><label>Hranice topné sezóny (°C)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="heatingThreshold" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Při venkovní teplotě nad tuto hodnotu se topná sezóna považuje za ukončenou (obvykle 13–15 °C).</div>
+                    <div class="input-row"><label>Interní zisky (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="internalGainW" step="10" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Průměrné interní tepelné zisky (lidé, spotřebiče, osvětlení). Snižuje skutečnou potřebu tepla.</div>
+                    <div class="input-row"><label>Zeměpisná šířka (Lat)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="locLat" step="0.0001" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Zeměpisná šířka pro stahování historických dat o počasí (Open-Meteo API).</div>
+                    <div class="input-row"><label>Zeměpisná délka (Lon)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="locLon" step="0.0001" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Zeměpisná délka pro stahování historických dat o počasí (Open-Meteo API).</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>📈</i> Topná křivka a LWT</div>
+                    <div class="input-row"><label>Cílová teplota TUV (°C)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvLwt" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Cílová teplota výstupní vody při ohřevu TUV (obvykle 50–55 °C). Vyšší = nižší COP.</div>
+                    <div class="input-row"><label>Venkovní Min (T1)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="curvTOutMin" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Nejnižší venkovní teplota na topné křivce (T1). Při ní TČ ohřívá vodu na nejvyšší LWT.</div>
+                    <div class="input-row"><label>Voda Max (L1)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="curvLwtMax" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Nejvyšší teplota výstupní vody (L1) — platí při nejnižší venkovní teplotě (T1).</div>
+                    <div class="input-row" style="margin-top:8px; border-top: 1px solid rgba(255,255,255,0.05); padding-top:5px;">
+                        <label>Venkovní Max (T2)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="curvTOutMax" onchange="App.updateConfig()" />
+                    </div>
+                    <div class="help-text">Nejvyšší venkovní teplota na topné křivce (T2). Při ní TČ ohřívá vodu na nejnižší LWT.</div>
+                    <div class="input-row"><label>Voda Min (L2)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="curvLwtMin" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Nejnižší teplota výstupní vody (L2) — platí při nejvyšší venkovní teplotě (T2).</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>⚡</i> Výkon a Topení (Watt)</div>
+                    <div class="input-row"><label>Start kompresoru<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="limitRun" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Hranice výkonu (W), nad kterou se čerpadlo považuje za zapnuté. Zpravidla 150–250 W.</div>
+                    <div class="input-row"><label>EKO Režim (Max W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="ecoMaxWatts" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Maximální výkon pro klasifikaci "Eko modulace" — inverter pracuje na nízkém výkonu.</div>
+                    <div class="input-row"><label>Plynulost (Nízká mod. W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="lowModMaxWatts" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Práh pro detekci plynulého nízkého výkonu (stabilní modulace). Slouží pro skóre plynulosti.</div>
+                    <div class="input-row"><label>Defrost Spike (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="defrostSpike" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Špičkový výkon (W) typický pro odmrazovací cyklus. Pomáhá odlišit odmraz od topení.</div>
+                    <div class="input-row"><label>Oil Return (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="oilWatts" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Výkon (W) typický pro Oil Return — krátký návrat oleje z kompresoru. Obvykle 1500–2000 W.</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>💧</i> Pokročilá detekce TUV</div>
+                    <div class="input-row"><label>Min. délka TUV (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="minTuv" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Nejkratší přijatelná délka TUV cyklu (min). Kratší cykly jsou ignorovány jako šum.</div>
+                    <div class="input-row"><label>Max. délka TUV (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="maxTuv" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Maximální délka čistého TUV cyklu (min). Delší běh je klasifikován jako smíšený provoz.</div>
+                    <div class="input-row"><label>Dyn. horní limit (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvDynMax" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Horní dynamická mez výkonu pro detekci TUV při nízkých venkovních teplotách.</div>
+                    <div class="input-row"><label>Dyn. spodní limit (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvDynMin" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Dolní dynamická mez výkonu pro detekci TUV při vysokých venkovních teplotách.</div>
+                    <div class="input-row"><label>Konec ohřevu (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvEndW" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Výkon, pod který výstupní část TUV cyklu klesá — signalizuje konec ohřevu TUV.</div>
+                    <div class="input-row"><label>Rychlý pád (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvDropW" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Rychlý pokles výkonu (W) v rámci jednoho intervalu — detekuje konec TUV fáze.</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>🛡️</i> Algoritmy a Filtry dat</div>
+                    <div class="input-row"><label>Oil Return Koeficient<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="oilRatio" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Koeficient pro detekci Oil Return. Špička musí být výrazně vyšší než okolní výkon (obvykle 1.5–2.0).</div>
+                    <div class="input-row"><label>Šum/Mikro starty (W)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="noiseW" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Výkon (W) mikro-startů, které jsou filtrovány jako šum a ignorovány.</div>
+                    <div class="input-row"><label>Šum min. trvání (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="noiseMins" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Minimální délka (min) mikro-startu. Kratší běhy pod noiseW jsou odstraněny.</div>
+                    <div class="input-row" style="margin-top: 5px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 8px;">
+                        <label style="color: var(--accent); font-weight: 800;">Aktivovat filtr šumu<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label>
+                        <input type="checkbox" id="noiseFilter" onchange="App.updateConfig()" style="width:20px; height:20px; cursor:pointer;" />
+                    </div>
+                    <div class="help-text">Zapnutí filtru šumových mikro-startů. Doporučeno pro data s nestabilním měřením.</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>⚠️</i> Zdraví a Výpadky dat</div>
+                    <div class="input-row"><label>Minimální běh (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="minRunTime" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Minimální doporučená délka běhu (min). Kratší cykly jsou označeny jako rizikové.</div>
+                    <div class="input-row"><label>Kritická pauza (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="riskGap" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Maximální pauza (min) kolem krátkého cyklu, aby byl označen jako rizikový. Delší pauza = OK.</div>
+                    <div class="input-row"><label>Min Pauza Defrost (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="minDefrostGap" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Minimální pauza po odmrazovacím cyklu. Kratší pauza = odmraz ještě pokračuje.</div>
+                    <div class="input-row"><label>Max Pauza Defrost (min)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="maxDefrostGap" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Maximální mezera mezi cykly, která je ještě považována za součást odmrazování.</div>
+                    <div class="input-row"><label>Tolerovaný výpadek (s)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="maxGapS" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Maximální výpadek dat (sekundy), který je automaticky doplněn interpolací.</div>
+                    
+                    <div class="help-text">Data po výpadku delším než tento limit (min) jsou ignorována — mohla vzniknout chyba měření.</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>💰</i> Ekonomika &amp; Odhady</div>
+                    <div class="input-row"><label>Cena za kWh (Kč)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="priceKwh" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Aktuální cena elektřiny (Kč/kWh). Slouží pro výpočty nákladů v exportu a přehledech.</div>
+                    <div class="input-row"><label>Ztráta bojleru TUV (Koef.)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvLossFactor" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Korekční koeficient tepelných ztrát zásobníku TUV (obvykle 1.05–1.15 = 5–15 % ztrát).</div>
+                    <div class="input-row"><label>Odhad ročního COP TUV<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="tuvCopEstimate" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Odhadovaný průměrný COP pro ohřev TUV použitý v ročních projekcích.</div>
+                    <div class="input-row"><label>Dní v měsíci (Ø)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="monthDays" step="0.1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Průměrný počet dní v měsíci pro roční projekce spotřeby (obvykle 30.4).</div>
+                    <div class="input-row"><label>Rok instalace TČ<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="installYear" min="2000" max="2030" step="1" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Rok kdy bylo tepelné čerpadlo nainstalováno. Slouží pro automatický výpočet degradace COP (nové TČ: −5 %, 3–5 let: −8 %, 5–10 let: −12 %, 10+ let: −18 %). Výchozí 0 = použít ruční nastavení degradace.</div>
+                    <div class="input-row"><label>Kalibrační faktor COP<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="copCalibration" step="0.01" min="0.5" max="1.5" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Korekce COP z reálného měření (výchozí 1.0 = bez korekce). Zjistíte ze servisu nebo z roční faktury. Snižte pokud aplikace přeceňuje výkon — např. 0.90 znamená COP o 10 % nižší než odhadujeme.</div>
+                </div>
+                <div class="settings-block">
+                    <div class="block-header"><i>💻</i> Systém a UI</div>
+                    <div class="input-row"><label>Základ trendu (dny)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="trendDays" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Počet dní pro výpočet krátkodobého trendu (spotřeba, COP, standby).</div>
+                    <div class="input-row"><label>Výchozí napětí sítě (V)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="defVolt" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Výchozí napětí sítě (V) pro záznamy kde není napětí měřeno nebo je nulové.</div>
+                    <div class="input-row"><label>Minimální platné napětí (V)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="minVolt" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Minimální platné napětí (V). Nižší hodnoty jsou ignorovány jako chyba měření.</div>
+                    <div class="input-row"><label>Projekt. starty (Životnost)<span class="help-icon" onclick="App.toggleHelp(this)">?</span></label><input type="number" id="lifeStarts" step="1000" onchange="App.updateConfig()" /></div>
+                    <div class="help-text">Projektovaný celkový počet startů kompresoru pro výpočet opotřebení (typicky 300 000–500 000).</div>
+                </div>
+                <div class="settings-block" style="grid-column: 1 / -1;">
+                    <div class="block-header"><i>⚙️</i> Model TČ a Výkonová matice</div>
+                    <div class="input-row mb-8">
+                        <label>Předvolba modelu</label>
+                        <select id="hpPreset" class="export-input-mini" style="width: 250px;" onchange="App.changeHpPreset()">
+                            <optgroup label="LG Therma V R32">
+                                <option value="lg_5kw">LG Therma V 5 kW (HM051MR)</option>
+                                <option value="lg_7kw">LG Therma V 7 kW (HM071MR)</option>
+                                <option value="lg_9kw">LG Therma V 9 kW (HM091MR)</option>
+                                <option value="lg_12kw">LG Therma V 12 kW (HM121MR)</option>
+                                <option value="lg_16kw">LG Therma V 16 kW (HM161MR)</option>
+                            </optgroup>
+                            <optgroup label="Daikin Altherma 3 R32">
+                                <option value="daikin_4kw">Daikin Altherma 3 4 kW (EDLA04E)</option>
+                                <option value="daikin_6kw">Daikin Altherma 3 6 kW (EDLA06E)</option>
+                                <option value="daikin_9kw">Daikin Altherma 3 9 kW (EPGA09DV)</option>
+                                <option value="daikin_11kw">Daikin Altherma 3 11 kW (EPGA11DV)</option>
+                                <option value="daikin_14kw">Daikin Altherma 3 14 kW (EPGA14DV)</option>
+                                <option value="daikin_16kw">Daikin Altherma 3 16 kW (EPGA16DV)</option>
+                            </optgroup>
+                            <optgroup label="Mitsubishi Ecodan R32">
+                                <option value="mitsubishi_5kw">Mitsubishi Ecodan 5 kW (PUHZ-SW50VKA)</option>
+                                <option value="mitsubishi_8kw">Mitsubishi Ecodan 8.5 kW (PUHZ-SW80VKA)</option>
+                                <option value="mitsubishi_12kw">Mitsubishi Ecodan 12 kW (PUHZ-SW120VKA)</option>
+                                <option value="mitsubishi_16kw">Mitsubishi Ecodan 16 kW (PUHZ-SWM160YAA)</option>
+                            </optgroup>
+                            <optgroup label="Vaillant aroTHERM plus R290">
+                                <option value="vaillant_5kw">Vaillant aroTHERM plus 5 kW (VWL 55/6)</option>
+                                <option value="vaillant_7kw">Vaillant aroTHERM plus 7 kW (VWL 75/6)</option>
+                                <option value="vaillant_10kw">Vaillant aroTHERM plus 10 kW (VWL 105/6)</option>
+                                <option value="vaillant_12kw">Vaillant aroTHERM plus 12 kW (VWL 125/6)</option>
+                            </optgroup>
+                            <optgroup label="Viessmann Vitocal 150-A R290">
+                                <option value="viessmann_8kw">Viessmann Vitocal 150-A 8 kW (151.A08)</option>
+                                <option value="viessmann_10kw">Viessmann Vitocal 150-A 10 kW (151.A10)</option>
+                                <option value="viessmann_13kw">Viessmann Vitocal 150-A 13 kW (151.A13)</option>
+                                <option value="viessmann_16kw">Viessmann Vitocal 150-A 16 kW (151.A16)</option>
+                            </optgroup>
+                            <optgroup label="Samsung EHS Mono HT Quiet R32">
+                                <option value="samsung_5kw">Samsung EHS Mono HT Quiet 5 kW</option>
+                                <option value="samsung_9kw">Samsung EHS Mono HT Quiet 9 kW</option>
+                                <option value="samsung_12kw">Samsung EHS Mono HT Quiet 12 kW</option>
+                                <option value="samsung_16kw">Samsung EHS Mono HT Quiet 16 kW</option>
+                            </optgroup>
+                            <optgroup label="Bosch Compress 7000i AW R32">
+                                <option value="bosch_6kw">Bosch Compress 7000i AW 6 kW</option>
+                                <option value="bosch_9kw">Bosch Compress 7000i AW 9 kW</option>
+                                <option value="bosch_13kw">Bosch Compress 7000i AW 13 kW</option>
+                            </optgroup>
+                            <optgroup label="Panasonic Aquarea T-CAP R32">
+                                <option value="panasonic_5kw">Panasonic Aquarea T-CAP 5 kW</option>
+                                <option value="panasonic_9kw">Panasonic Aquarea T-CAP 9 kW</option>
+                                <option value="panasonic_12kw">Panasonic Aquarea T-CAP 12 kW</option>
+                                <option value="panasonic_16kw">Panasonic Aquarea T-CAP 16 kW</option>
+                            </optgroup>
+                            <optgroup label="Nibe F2120 R410A">
+                                <option value="nibe_6kw">Nibe F2120 6 kW</option>
+                                <option value="nibe_8kw">Nibe F2120 8 kW</option>
+                                <option value="nibe_11kw">Nibe F2120 11 kW</option>
+                                <option value="nibe_16kw">Nibe F2120 16 kW</option>
+                            </optgroup>
+                            <optgroup label="Stiebel Eltron WPL AC classic R410A">
+                                <option value="stiebel_7kw">Stiebel Eltron WPL 7 AC</option>
+                                <option value="stiebel_10kw">Stiebel Eltron WPL 10 AC</option>
+                                <option value="stiebel_15kw">Stiebel Eltron WPL 15 AC</option>
+                                <option value="stiebel_22kw">Stiebel Eltron WPL 22 AC</option>
+                            </optgroup>
+                            <optgroup label="Alpha Innotec ALSI R32">
+                                <option value="alpha_6kw">Alpha Innotec ALSI 6H (6 kW)</option>
+                                <option value="alpha_9kw">Alpha Innotec ALSI 9H (9 kW)</option>
+                                <option value="alpha_14kw">Alpha Innotec ALSI 14H (14 kW)</option>
+                            </optgroup>
+                            <optgroup label="Ochsner GMLW plus R410A/R32">
+                                <option value="ochsner_8kw">Ochsner GMLW 8 plus (8 kW)</option>
+                                <option value="ochsner_11kw">Ochsner GMLW 11 plus (11 kW)</option>
+                                <option value="ochsner_16kw">Ochsner GMLW 16 plus (16 kW)</option>
+                            </optgroup>
+                            <optgroup label="Ostatní">
+                                <option value="custom">Vlastní (Custom)</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    <div class="input-row" style="margin-bottom: 12px;">
+                        <label>Název v exportu</label>
+                        <input type="text" id="hpName" style="width: 250px; text-align: left;" onchange="App.customHpEdited()" />
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <label style="font-size: 0.75rem; color: rgba(238,241,247,0.75); font-weight: 600;">Surová CSV data (Teplota; LWT 30 TC; LWT 30 COP...)</label>
+                        <textarea id="hpMatrix" class="settings-textarea" style="width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); color: white; padding: 10px; border-radius: 8px; font-family: monospace; font-size: 0.7rem; resize: vertical; min-height: 120px; outline: none; white-space: pre;" onchange="App.customHpEdited()"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HLAVNÍ OBSAH -->
+    <div class="content-area">
+
+        <!-- TAB 1: DASHBOARD -->
+        <div class="tab-content active" id="tab-dashboard">
+            <div class="header-card">
+                <div class="header-row">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                    <h2>🛡️ Analytik PRO<span>B</span></h2>
+                    </div>
+                    <button class="compact-btn" onclick="document.getElementById('fileInput').click()">📂 Načíst LOG</button>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--border); margin-bottom: 5px;">
+                    <span style="font-size: 0.75rem; font-weight: 800; color: var(--text-dim); text-transform: uppercase;">Detailní / Zjednodušený režim:</span>
+                    <label class="switch" title="Přepnout režim (Uživatel / Analytik)">
+                        <input type="checkbox" id="mainModeToggle" checked onchange="App.toggleMode(this)">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <input class="hidden" type="file" id="fileInput" accept=".txt,.csv" multiple onchange="App.handleFileUpload(this)" />
+                <textarea class="hidden" id="dataInput">A</textarea>
+                <div class="analyst-view">
+                    <div id="statusFreq" class="status-badge">Čekám na data...</div>
+                    <div id="statusStability" class="status-badge hidden"></div>
+                </div>
+            </div>
+
+            <!-- ANALYST VIEW -->
+            <div class="dashboard-layout analyst-view">
+                <div class="section-wrapper">
+                    <div class="section-title">💰 Ekonomika &amp; Ztráty</div>
+                    <div class="stats-grid">
+                        <div class="stat-card" id="cardKwh" onclick="App.switchTab('finance')"><div class="stat-label">Spotřeba</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card cursor-ptr" id="cardCop" onclick="App.switchTab('thermo')"><div class="stat-label">Efektivita (Mix)</div><div class="stat-value clr-success">-</div><div class="stat-sub">Celý chod vč. TUV</div></div>
+                        <div class="stat-card cursor-ptr" id="cardLoss" onclick="App.switchTab('thermo')"><div class="stat-label">Ztráta domu (-15°C)</div><div class="stat-value">-</div><div class="stat-sub"><span class="clr-weather" id="statHouseK"></span><span id="statWm2" style="color:var(--accent); font-weight:800; margin-left: 5px;"></span></div></div>
+                    </div>
+                </div>
+                <div class="section-wrapper">
+                    <div class="section-title">🛡️ Zdraví &amp; Servis</div>
+                    <div class="stats-grid">
+                        <div class="stat-card" id="cardFatigue"><div class="stat-label">Cyklování</div><div class="stat-value clr-accent-var">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card" id="cardDuty"><div class="stat-label">Využití Času</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card" id="cardOil" style="padding: 0; overflow: hidden;"><div class="service-split"><div class="service-row border-b" style="color:#fff;">Defrost -</div><div class="service-row" style="color:var(--oil);">Oil -</div></div></div>
+                    </div>
+                </div>
+                <div class="section-wrapper">
+                    <div class="section-title">⚙️ Dynamika Provozu</div>
+                    <div class="stats-grid">
+                        <div class="stat-card" id="cardSmooth"><div class="stat-label">Plynulost</div><div class="stat-value clr-success">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card" id="cardEco"><div class="stat-label">Eko Režim</div><div class="stat-value clr-success">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card" id="cardPower"><div class="stat-label">Ø Modulace</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                    </div>
+                </div>
+                <div class="section-wrapper">
+                    <div class="section-title">🌍 Teploty &amp; Časy</div>
+                    <div class="stats-grid">
+                        <div class="stat-card cursor-ptr" id="cardWeather" onclick="App.openCurveModal()"><div class="stat-label">Venkovní Ø</div><div class="stat-value clr-weather">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card" id="cardRun"><div class="stat-label">Ø Délka Běhu</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card" id="cardPause"><div class="stat-label">Ø Pauza</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- USER VIEW -->
+            <div class="dashboard-layout user-view">
+                <div class="card user-hero-card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 15px; margin-bottom: 8px;">
+                    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); font-weight: 800; margin-bottom: 12px;">Celkové Hodnocení Chodu</div>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; justify-content: center; width: 100%;">
+                        <div class="flex-col-center">
+                            <div class="user-score-circle score-circle-md" id="userScoreEcon">0%</div>
+                            <div class="score-lbl">Účinnost</div>
+                        </div>
+                        <div class="flex-col-center">
+                            <div class="user-score-circle score-circle-md" id="userScoreHealth">0%</div>
+                            <div class="score-lbl">Zdraví</div>
+                        </div>
+                        <div class="flex-col-center">
+                            <div class="user-score-circle score-circle-md" id="userScoreSmooth">0%</div>
+                            <div class="score-lbl">Plynulost</div>
+                        </div>
+                        <div class="flex-col-center">
+                            <div class="user-score-circle score-circle-md" id="userScoreLoad">0%</div>
+                            <div class="score-lbl">Izolace</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card" style="padding: 10px 15px; display: flex; flex-direction: column;">
+                    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--warning); font-weight: 800; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; flex-shrink: 0;"><i>💡</i> Příběh vybraného období</div>
+                    <div id="userInsightsBox" style="display: flex; flex-direction: column; gap: 8px; font-size: 0.75rem; color: rgba(238,241,247,0.75); line-height: 1.4;">
+                        <i>Čekám na data pro vygenerování postřehů...</i>
+                    </div>
+                </div>
+                <div class="card" style="margin-bottom: 8px; padding: 10px 15px; flex-shrink: 0;">
+                    <div style="font-size: 0.8rem; text-transform: uppercase; color: var(--accent); font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;"><i>⚡</i> Opotřebení kompresoru</div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:0.65rem; color:var(--text-dim); font-weight:600;">🔁 Starty cyklů</span>
+                        <span id="userStartsTotal" style="font-size:0.65rem; font-weight:800; color:white;">–</span>
+                    </div>
+                    <div style="width:100%; height:10px; background:rgba(255,255,255,0.08); border-radius:5px; margin-bottom:8px; overflow:hidden;">
+                        <div id="userLifespanBar" style="height:100%; width:0%; background:var(--success); border-radius:5px; transition:width 1s ease;"></div>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:0.65rem; color:var(--text-dim); font-weight:600;">⏱ Motohodiny</span>
+                        <span id="userMotoTotal" style="font-size:0.65rem; font-weight:800; color:white;">–</span>
+                    </div>
+                    <div style="width:100%; height:10px; background:rgba(255,255,255,0.08); border-radius:5px; margin-bottom:10px; overflow:hidden;">
+                        <div id="userMotoBar" style="height:100%; width:0%; background:var(--accent); border-radius:5px; transition:width 1s ease;"></div>
+                    </div>
+                    <div id="userLifespanAnalysis" style="font-size:0.7rem; line-height:1.5; color:var(--text-dim);">Načítám data…</div>
+                    <div style="text-align:right; font-size:0.63rem; color:var(--text-dim); margin-top:6px; font-weight:700;">
+                        <span id="userLifespanEst">–</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-thermo">
+            <div class="card flex-col-scroll">
+                
+                <h2 style="text-align: center; color: var(--accent); margin-bottom: 4px; font-size: 1rem;">📊 Dlouhodobá termodynamika a trendy</h2>
+                <div style="text-align: center; font-size: 0.7rem; color: var(--text-dim); margin-top: -5px; margin-bottom: 5px;">Trendy porovnávají nedávný stav vůči zbytku historie.</div>
+
+                <div class="expert-grid" id="expertScoreContainer" style="display: none; margin-bottom: 5px;">
+                    <!-- Sem se vykresluje expertní hodnocení z JS -->
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+                    <div class="detail-col" style="text-align: center; padding: 10px; border-color: rgba(34, 197, 94, 0.3);">
+                        <div class="lbl-header">COP Mix</div>
+                        <div id="th_copMix" style="font-size: 1.3rem; font-weight: 900; color: var(--success); margin: 2px 0;">-</div>
+                        <div class="txt-xxs" id="th_copMix_t"></div>
+                    </div>
+                    <div class="detail-col" style="text-align: center; padding: 10px; border-color: rgba(90, 184, 255, 0.3);">
+                        <div class="lbl-header">COP Top</div>
+                        <div id="th_copHeat" style="font-size: 1.3rem; font-weight: 900; color: var(--accent); margin: 2px 0;">-</div>
+                        <div class="txt-xxs" id="th_copHeat_t"></div>
+                    </div>
+                    <div class="detail-col" style="text-align: center; padding: 10px; border-color: rgba(217, 70, 239, 0.3);">
+                        <div class="lbl-header">COP TUV</div>
+                        <div id="th_copTuv" style="font-size: 1.3rem; font-weight: 900; color: var(--tuv); margin: 2px 0;">-</div>
+                        <div class="txt-xxs" id="th_copTuv_t"></div>
+                    </div>
+                </div>
+
+                <div class="card-inner-sm">
+                    <div class="block-header" style="margin-bottom: 10px; font-size: 0.75rem;"><i>🏠</i> Fyzika budovy a Klima</div>
+                    <div class="grid-2col">
+                        <div><div class="lbl-dim">Zátěž pro TČ</div><div class="val-bold-lg" id="th_loss">-</div><div class="txt-xxs" id="th_loss_t"></div></div>
+                        <div><div class="lbl-dim">Měrná zátěž TČ</div><div class="val-accent" id="th_wm2">-</div><div class="txt-xxs" id="th_wm2_t"></div></div>
+                        <div><div class="lbl-dim">Odhad Bivalence</div><div id="th_biv" style="font-weight: 800; color: var(--danger); font-size: 0.9rem;">-</div><div class="txt-xxs" id="th_biv_t"></div></div>
+                        <div><div class="lbl-dim">Zátěž TČ (W/K)</div><div class="val-bold-lg" id="th_houseK">-</div><div class="txt-xxs" id="th_houseK_t"></div></div>
+                        
+                        <div class="border-top-dim">
+                            <div class="lbl-dim">Zisky zima (&lt; 3°C)</div>
+                            <div class="val-warning" id="th_gain_zima">-</div>
+                        </div>
+                        <div class="border-top-dim">
+                            <div class="lbl-dim">Zisky přechod (≥ 3°C)</div>
+                            <div class="val-warning" id="th_gain_prechod">-</div>
+                        </div>
+                        
+                        <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px; grid-column: span 2; display: flex; justify-content: space-between;">
+                            <div>
+                                <div class="lbl-dim">Dennostupně (HDD)</div>
+                                <div style="display: flex; align-items: baseline; gap: 6px;">
+                                    <span class="val-bold" id="th_hdd">-</span>
+                                    <span class="txt-xxs" id="th_hdd_t"></span>
+                                </div>
+                            </div>
+                            <div class="txt-right">
+                                <div class="lbl-dim">Odolnost (kWh/HDD)</div>
+                                <div style="display: flex; align-items: baseline; gap: 6px; justify-content: flex-end;">
+                                    <span class="txt-xxs" id="th_kwhHdd_t"></span>
+                                    <span class="val-bold" id="th_kwhHdd">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="background: rgba(255,255,255,0.035); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 4px;">
+                    <div class="block-header" style="margin-bottom: 10px; font-size: 0.75rem; color: var(--accent);"><i class="clr-accent-var">⚙️</i> Limity a Chování systému</div>
+                    <div class="grid-2col">
+                        <div>
+                            <div class="lbl-dim">Hranice topné sezóny</div>
+                            <div id="th_heatingBoundary" style="font-weight:800; color:white; font-size:0.85rem; line-height:1.4;">-</div>
+                            <div id="th_normCopWarning" style="display:none; font-size:0.65rem; color:var(--warning); margin-top:4px; line-height:1.3; padding:4px 6px; background:rgba(245,158,11,0.1); border-radius:6px; border:1px solid rgba(245,158,11,0.3);"></div>
+                        </div>
+                        <div>
+                            <div class="lbl-dim">Min. stabilní modulace</div>
+                            <div class="val-accent" id="th_minModulation">-</div>
+                            <div id="th_minModulationHeat" style="font-size: 0.65rem; color: var(--success); font-weight: 700; margin-top: 2px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid-2col">
+                    <div class="card-inner-sm">
+                        <div class="block-header" style="margin-bottom: 8px; font-size: 0.75rem; color: var(--accent);"><i class="clr-accent-var">🔥</i> Topení</div>
+                        <div class="mb-8">
+                            <div class="lbl-dim">Dodané teplo</div>
+                            <div class="val-bold" id="th_heatTpWh">-</div>
+                            <div class="txt-xxs" id="th_heatTpWh_t"></div>
+                        </div>
+                        <div>
+                            <div class="lbl-dim">Spotřebovaná el.</div>
+                            <div class="val-bold" id="th_heatKwh">-</div>
+                            <div class="txt-xxs" id="th_heatKwh_t"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="card-inner-sm">
+                        <div class="block-header" style="margin-bottom: 8px; font-size: 0.75rem; color: var(--tuv);"><i style="color:var(--tuv);">💧</i> Ohřev TUV</div>
+                        <div class="mb-8">
+                            <div class="lbl-dim">Dodané teplo</div>
+                            <div class="val-bold" id="th_tuvTpWh">-</div>
+                            <div class="txt-xxs" id="th_tuvTpWh_t"></div>
+                        </div>
+                        <div>
+                            <div class="lbl-dim">Spotřebovaná el.</div>
+                            <div class="val-bold" id="th_tuvKwh">-</div>
+                            <div class="txt-xxs" id="th_tuvKwh_t"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
+                    <div class="detail-col pad-flex-col">
+                        <div class="lbl-header-light">Ztráty odtáváním</div>
+                        <div id="th_defrostWh" style="font-size: 1rem; font-weight: 900; color: var(--danger); margin: 2px 0;">-</div>
+                        <div class="txt-xxs" id="th_defrostWh_t"></div>
+                    </div>
+                    <div class="detail-col pad-flex-col">
+                        <div class="lbl-header-light">Min. napětí sítě</div>
+                        <div id="th_minVolt" style="font-size: 1rem; font-weight: 900; color: var(--oil); margin: 2px 0;">-</div>
+                        <div class="txt-xxs" id="th_minVolt_t"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: GRAFY -->
+        <div class="tab-content" id="tab-charts">
+            <div class="chart-container pos-rel">
+                <div class="control-bar">
+                    <div class="view-section">
+                        <button id="btnGroup1" class="view-btn active" onclick="App.cycleGroup1()">LINE</button>
+                        <button id="btnGroup2" class="view-btn" onclick="App.cycleGroup2()">DNY</button>
+                        <button id="btnCopView" class="view-btn" onclick="App.setView('agg_cop')">COP</button>
+                        <button id="btnCostView" class="view-btn" onclick="App.setView('cost')">CENA</button>
+                    </div>
+                </div>
+                <div class="chart-box pos-rel">
+                    <div class="hidden" id="noDataMsg">Žádná data</div>
+                    <div class="chart-split-layout" style="display: flex; flex-direction: column; height: 100%; position: relative;">
+                        <div style="display: flex; flex: 1; min-height: 0;">
+                            <div class="axis-column axis-col-left">
+                                <canvas class="fill-block" id="yAxisMain"></canvas>
+                            </div>
+                            <div class="scroll-wrapper" id="scrollContainerMain" style="flex-grow: 1; overflow-x: auto; overflow-y: hidden;">
+                                <div class="canvas-holder" id="canvasHolderMain" style="padding: 6px 2px 0 0; min-width: 100%; position: relative; height: 100%; display: flex; flex-direction: column;">
+                                    <canvas id="myChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="axis-column right axis-col-right">
+                                <canvas class="fill-block" id="yAxisTemp"></canvas>
+                            </div>
+                        </div>
+                        <div id="axisVoltWrap" style="display: flex; height: 80px; flex-shrink: 0; margin-top: 4px;">
+                            <div class="axis-column axis-col-left">
+                                <canvas class="fill-block" id="yAxisVolt"></canvas>
+                            </div>
+                            <div class="scroll-wrapper" id="scrollContainerVolt" style="flex-grow: 1; overflow-x: hidden; overflow-y: hidden;">
+                                <div class="canvas-holder" id="canvasHolderVolt" style="padding: 0 2px 12px 0; min-width: 100%; position: relative; height: 100%; display: flex; flex-direction: column;">
+                                    <canvas id="voltChart"></canvas>
+                                </div>
+                            </div>
+                            <div class="axis-column right axis-col-right"></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="chartCustomTooltip" class="custom-tooltip-chart"></div>
+                <div class="legend-bar">
+                    <div class="legend-item"><div class="color-box" style="background:#a78bfa"></div>Venkovní</div>
+                    <div class="legend-item"><div class="color-box" style="background:#4ade80"></div>Eko Mod</div>
+                    <div class="legend-item"><div class="color-box" style="background:#5ab8ff"></div>Standard</div>
+                    <div class="legend-item"><div class="color-box" style="background:#eab308"></div>Oil Return</div>
+                    <div class="legend-item"><div class="color-box" style="background:#d946ef"></div>TUV</div>
+                    <div class="legend-item"><div class="color-box" style="background:#2dd4bf"></div>Tlaky</div>
+                    <div class="legend-item"><div class="color-box" style="background:#ffffff;border:1px solid #555"></div>Defrost</div>
+                    <div class="legend-item"><div class="color-box" style="background:#ef4444"></div>Riziko</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: SIMULACE (Nová záložka) -->
+        <div class="tab-content" id="tab-simulators">
+            <div class="card flex-col-scroll">
+                <h2 style="text-align: center; color: var(--warning); margin-bottom: 4px; font-size: 1.1rem;">🧪 Laboratoř úspor</h2>
+                <div style="text-align: center; font-size: 0.75rem; color: var(--text-dim); margin-bottom: 10px;">Vyzkoušejte si, jak změny ovlivní váš dům.</div>
+
+                <div class="card-inner">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-size: 0.85rem; font-weight: 800; color: white;">Cena za 1 kWh</span>
+                        <span id="userPriceDisplay" style="font-size: 1.1rem; font-weight: 900; color: var(--accent);">4.80 Kč</span>
+                    </div>
+                    <input class="w-full-mb" type="range" id="userPriceSlider" min="2.00" max="10.00" step="0.10" value="4.80">
+                    
+                    <div style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 10px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div class="lbl-header-light">Odhadovaný roční účet</div>
+                            <div id="userYearlyCost" style="font-size: 1.2rem; color: var(--success); font-weight: 900; margin-top: 2px;">- Kč</div>
+                        </div>
+                        <div class="txt-right">
+                            <div class="lbl-header-light" id="userPeriodLabel">-</div>
+                            <div id="userPeriodCost" style="font-size: 1rem; color: white; font-weight: 800; margin-top: 2px;">- Kč</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-inner">
+                    <div class="section-head">
+                        <span>Cílová teplota v domě</span>
+                        <span id="simTempDisplay" style="color: var(--warning);">22.5 °C</span>
+                    </div>
+                    <input class="w-full-mb" type="range" id="simTempSlider" min="18" max="26" step="0.5" value="22.5">
+                    <div style="background: rgba(245, 158, 11, 0.1); border-radius: 8px; padding: 10px; border: 1px solid rgba(245, 158, 11, 0.3);">
+                        <div class="lbl-sub">Dopad na roční účet:</div>
+                        <div id="simTempResult" style="font-size: 1.1rem; color: var(--success); font-weight: 900; margin-top: 4px;">Ušetříte 0 Kč</div>
+                    </div>
+                </div>
+
+                <div class="card-inner">
+                    <div class="section-head">
+                        <span>Plánované zateplení</span>
+                        <span id="simInsulDisplay" style="color: var(--accent);">0 % (Stávající)</span>
+                    </div>
+                    <input class="w-full-mb" type="range" id="simInsulSlider" min="0" max="60" step="5" value="0">
+                    <div style="background: rgba(90, 184, 255, 0.1); border-radius: 8px; padding: 10px; border: 1px solid rgba(90, 184, 255, 0.3);">
+                        <div class="lbl-sub">Posun bodu bivalence:</div>
+                        <div id="simInsulResult" style="font-size: 1.1rem; color: var(--accent); font-weight: 900; margin-top: 4px;">Zůstane na -7.5 °C</div>
+                        <div id="simInsulSaving" style="font-size: 0.75rem; color: var(--success); font-weight: 700; margin-top: 4px;">Úspora: 0 Kč / rok</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 5: FINANCE -->
+        <div class="tab-content" id="tab-finance">
+            <div class="card" style="margin-bottom: 0; padding: 15px; display: flex; flex-direction: column; height: 100%; overflow-y: auto; gap: 15px;">
+                <h2 style="font-size: 1.1rem; color: var(--accent); margin: 0; text-align: center;">Detailní vyúčtování a modely</h2>
+                
+                <div class="detail-col" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.4);">
+                    <div class="detail-head" style="color:var(--success); font-size: 0.9rem;">Předpověď na rok</div>
+                    <div class="table-row" style="background: rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 4px 15px rgba(0,0,0,0.3); display: flex; flex-direction: column; align-items: center; gap: 5px;">
+                        <span style="color:white; font-weight: 800; font-size: 0.85rem; text-transform: uppercase;">Očekávaný účet</span>
+                        <span id="est_R_Real" style="color:var(--success); font-weight: 900; font-size: 1.8rem; text-shadow: 0 0 10px rgba(34,197,94,0.5);">-</span>
+                        <span id="est_C_Real" style="color:var(--text-dim); font-weight: 700; font-size: 0.9rem;">-</span>
+                    </div>
+                    <div class="table-row summary-header" style="color:var(--success); margin-bottom: 4px;"><span>Rok Model</span><span id="est_C_Sum">-</span><span id="est_R_Sum">-</span></div>
+                    <div class="table-row" style="margin-top: 2px; padding-top: 4px; padding-bottom: 3px;">
+                        <span style="color:var(--success); font-weight: 800;">SCOP <span style="font-size: 0.6rem; color: var(--success); opacity: 0.7;">(Top|Mix)</span></span>
+                        <span class="val-success" id="est_SCOP_Heat" title="SCOP Topení">-</span>
+                        <span class="val-success" id="est_SCOP" title="SCOP Celkové">-</span>
+                    </div>
+                    <div class="table-row pad-xs"><span>Odhad Topení</span><span id="est_C_Heat">-</span><span id="est_R_Heat">-</span></div>
+                    <div class="table-row pad-xs"><span>Odhad TUV</span><span id="est_C_Tuv">-</span><span id="est_R_Tuv">-</span></div>
+                    <div class="table-row pad-xs"><span>Odhad Standby</span><span class="clr-dim" id="est_C_Standby">-</span><span class="clr-dim" id="est_R_Standby">-</span></div>
+                </div>
+
+                <div class="detail-col" style="border: 1px solid rgba(90, 184, 255, 0.4);">
+                    <div class="mini-nav" style="margin-bottom: 6px;">
+                        <button class="nav-btn-mini" onclick="App.changeSeason(-1)">&#9664;</button>
+                        <div class="detail-head" id="seasonLabel" style="margin:0; font-size:0.8rem;">CELKEM</div>
+                        <button class="nav-btn-mini" onclick="App.changeSeason(1)">&#9654;</button>
+                    </div>
+                    <div class="table-row summary-header mb-4"><span id="all_L_Sum">-</span><span id="all_C_Sum">-</span><span id="all_R_Sum">-</span></div>
+                    <div class="table-row pad-xs"><span>Topení</span><span class="clr-accent" id="all_C_Heat">-</span><span class="clr-accent" id="all_R_Heat">-</span></div>
+                    <div class="table-row pad-xs"><span>TUV</span><span class="clr-tuv" id="all_C_Tuv">-</span><span class="clr-tuv" id="all_R_Tuv">-</span></div>
+                    <div class="table-row pad-xs"><span>Standby</span><span class="clr-dim" id="all_C_Standby">-</span><span class="clr-dim" id="all_R_Standby">-</span></div>
+                </div>
+
+                <div class="detail-col">
+                    <div class="detail-head" style="margin-bottom: 6px; font-size: 0.8rem;">Průměr (Den)</div>
+                    <div class="table-row summary-header mb-4"><span id="win_L_Sum">-</span><span id="win_C_Sum">-</span><span id="win_R_Sum">-</span></div>
+                    <div class="table-row pad-xs"><span>Topení</span><span class="clr-accent" id="win_C_Heat">-</span><span class="clr-accent" id="win_R_Heat">-</span></div>
+                    <div class="table-row pad-xs"><span>TUV</span><span class="clr-tuv" id="win_C_Tuv">-</span><span class="clr-tuv" id="win_R_Tuv">-</span></div>
+                    <div class="table-row pad-xs"><span>Standby</span><span class="clr-dim" id="win_C_Standby">-</span><span class="clr-dim" id="win_R_Standby">-</span></div>
+                </div>
+            </div>
+        </div>
+
+
+
+    </div><!-- /content-area -->
+
+    <!-- SPODNÍ NAVIGACE -->
+    <div class="bottom-nav">
+        <div class="nav-item active" onclick="App.switchTab('dashboard', this)"><div class="icon">🏠</div><span>Přehled</span></div>
+        <div class="nav-item" onclick="App.switchTab('thermo', this)"><div class="icon">📊</div><span>Termo</span></div>
+        <div class="nav-item" onclick="App.switchTab('charts', this)"><div class="icon">📈</div><span>Grafy</span></div>
+        <div class="nav-item" onclick="App.switchTab('simulators', this)"><div class="icon">🧪</div><span>Simulace</span></div>
+        <div class="nav-item" onclick="App.switchTab('finance', this)"><div class="icon">💰</div><span>Finance</span></div>
+    </div>
+
+            <script id="workerScript" type="javascript/worker">WORKER</script>
+
+    <script id="module-state"   data-module="STATE">STATE</script>
+    <script id="module-utils"   data-module="UTILS">UTILS</script>
+    <script id="module-api"     data-module="API">API</script>
+    <script id="module-charts"  data-module="CHARTS">CHARTS</script>
+<script id="module-ui"   data-module="UI">UI</script>
+
+</body>
+</html>
