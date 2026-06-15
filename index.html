@@ -1326,6 +1326,8 @@ function estimateCOPRaw(temp, config) {
     let targetLWT;
     if (temp <= c.tOutMin) targetLWT = c.lwtMax;
     else if (temp >= c.tOutMax) targetLWT = c.lwtMin;
+    // Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+    else if (c.tOutMax - c.tOutMin === 0) targetLWT = c.lwtMax;
     else targetLWT = c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (temp - c.tOutMin);
     const raw = bilinearInterpolation(parsedCopMatrix, LWT_HEADERS, temp, targetLWT);
     return raw < 1.0 ? 1.0 : raw;
@@ -1352,6 +1354,8 @@ else {
     const c = config.curve;
     if (temp <= c.tOutMin) targetLWT = c.lwtMax;
     else if (temp >= c.tOutMax) targetLWT = c.lwtMin;
+    // Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+    else if (c.tOutMax - c.tOutMin === 0) targetLWT = c.lwtMax;
     else targetLWT = c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (temp - c.tOutMin);
 }
 let finalCop = bilinearInterpolation(parsedCopMatrix, LWT_HEADERS, temp, targetLWT);
@@ -1396,6 +1400,8 @@ const c = config.curve;
 let targetLWT;
 if (temp <= c.tOutMin) targetLWT = c.lwtMax;
 else if (temp >= c.tOutMax) targetLWT = c.lwtMin;
+// Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+else if (c.tOutMax - c.tOutMin === 0) targetLWT = c.lwtMax;
 else targetLWT = c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (temp - c.tOutMin);
 return bilinearInterpolation(parsedTcMatrix, LWT_HEADERS, temp, targetLWT);
 }
@@ -1877,6 +1883,8 @@ let heatLWT = (c && Number.isFinite(c.lwtMin)) ? c.lwtMin : 35;
 if (c && Number.isFinite(c.lwtMax) && Number.isFinite(c.lwtMin) && Number.isFinite(c.tOutMin) && Number.isFinite(c.tOutMax)) {
     if      (avgTemp <= c.tOutMin) heatLWT = c.lwtMax;
     else if (avgTemp >= c.tOutMax) heatLWT = c.lwtMin;
+    // Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+    else if (c.tOutMax - c.tOutMin === 0) heatLWT = c.lwtMax;
     else { const t = (avgTemp - c.tOutMin) / (c.tOutMax - c.tOutMin); heatLWT = c.lwtMax + t * (c.lwtMin - c.lwtMax); }
 }
 const tuvLWT = (c && Number.isFinite(c.tuvLwt)) ? c.tuvLwt : 55;
@@ -2394,6 +2402,12 @@ if (config && config.system && config.system.hpMatrix) {
     parseCopData(config.system.hpMatrix);
 }
 
+// Pojmenované výchozí konstanty (fallbacky) — hodnoty zachovány beze změny
+const DEFAULT_STANDBY_W = 145;        // výchozí klidový příkon [W], když nejsou data o standby
+const DEFAULT_THERMAL_POWER_W = 2400; // výchozí tepelný výkon TČ [W] pro odhad doby chodu
+const MIN_THERMAL_POWER_W = 1800;     // minimální věrohodný tepelný výkon [W] — pod ním fallback
+const FALLBACK_MONTHLY_COP = 4.0;     // výchozí měsíční COP, když chybí v dynamicMonthlyCop
+
 if (type === 'GENERATE_EXPORT') {
     if (!memCache) {
         self.postMessage({ type: 'EXPORT_RESULT', jobId, textDisplay: 'Chyba: Žádná data v paměti.' });
@@ -2446,7 +2460,9 @@ if (type === 'GENERATE_EXPORT') {
         if (rStHrs > 0) recentStandbyW = rStWh / rStHrs;
     }
 
-    const avgStandbyW = recentStandbyW > 0 ? recentStandbyW : (globStandbyHours > 0 ? globStandbyWh / globStandbyHours : 145);
+    let avgStandbyW = recentStandbyW > 0 ? recentStandbyW : (globStandbyHours > 0 ? globStandbyWh / globStandbyHours : DEFAULT_STANDBY_W);
+    // Sanity guard: standby musí být konečný a nezáporný, jinak výchozí hodnota
+    if (!Number.isFinite(avgStandbyW) || avgStandbyW < 0) avgStandbyW = DEFAULT_STANDBY_W;
 
     const gainW_zima = (memCache.physics && memCache.physics.dynamicGainW_zima !== undefined) ? memCache.physics.dynamicGainW_zima : (config.internalGainW || 0);
     const gainW_prechod = (memCache.physics && memCache.physics.dynamicGainW_prechod !== undefined) ? memCache.physics.dynamicGainW_prechod : (config.internalGainW || 0);
@@ -2459,7 +2475,9 @@ if (type === 'GENERATE_EXPORT') {
     const wm2_HP = loss_HP / area;
 
     const bivalence = calculateExactBivalence(houseK_Total, memCache.maxTcCurve, config.targetIndoorTemp, gainW_zima);
-    const overallEfficiency = globHdd > 0 ? (globHeatWh / 1000) / globHdd : 0;
+    let overallEfficiency = globHdd > 0 ? (globHeatWh / 1000) / globHdd : 0;
+    // Sanity guard: měrná spotřeba kWh/HDD musí být konečná a nezáporná, jinak výchozí 0
+    if (!Number.isFinite(overallEfficiency) || overallEfficiency < 0) overallEfficiency = 0;
 
     let days = (maxTs - minTs) / 86400; if (days < 1) days = 1;
     const avgTuvKwh = (globTuvWh / 1000) / days;
@@ -2469,8 +2487,9 @@ if (type === 'GENERATE_EXPORT') {
 
     let totalRunTimeHours = 0;
     Object.values(sStats).forEach(b => { totalRunTimeHours += (b.runTimeHours || 0); });
-    let avgThermalPowerW = totalRunTimeHours > 0 ? (globHeatTpWh / totalRunTimeHours) : 2400;
-    if (avgThermalPowerW < 1800) avgThermalPowerW = 2400;
+    let avgThermalPowerW = totalRunTimeHours > 0 ? (globHeatTpWh / totalRunTimeHours) : DEFAULT_THERMAL_POWER_W;
+    // Sanity guard: tepelný výkon musí být konečný a nad minimem, jinak výchozí hodnota
+    if (!Number.isFinite(avgThermalPowerW) || avgThermalPowerW < MIN_THERMAL_POWER_W) avgThermalPowerW = DEFAULT_THERMAL_POWER_W;
 
     let yearlyHeatWhEl = 0, yearlyHeatWhThermal = 0;
     let yearlyTuvWhEl = 0, yearlyTuvWhThermal = 0;
@@ -2493,7 +2512,7 @@ if (type === 'GENERATE_EXPORT') {
             const usedGain = (tOut < 3) ? gainW_zima : gainW_prechod;
             
             let thermalReq = Math.max(0, (usedK * mDiff) - usedGain) * 24 * daysInMonth;
-            const currentCop = memCache.dynamicMonthlyCop[index] || 4.0;
+            const currentCop = memCache.dynamicMonthlyCop[index] || FALLBACK_MONTHLY_COP;
             yearlyHeatWhEl += (thermalReq / currentCop);
             yearlyHeatWhThermal += thermalReq;
             estRunHours += (thermalReq / avgThermalPowerW); 
@@ -2507,7 +2526,9 @@ if (type === 'GENERATE_EXPORT') {
     const estTuvKwh = yearlyTuvWhEl / 1000;
     const totalEstElKwh = (yearlyHeatWhEl / 1000) + estTuvKwh + (yearlyStandbyWhEl / 1000);
     const totalEstThermalKwh = (yearlyHeatWhThermal / 1000) + (yearlyTuvWhThermal / 1000);
-    const estScop = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
+    let estScop = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
+    // Sanity guard: SCOP musí být konečný a nezáporný, jinak výchozí 0
+    if (!Number.isFinite(estScop) || estScop < 0) estScop = 0;
 
     let remainingHddRatio = modelYearHdd > 0 ? Math.max(0, 1 - ((globHdd || 0) / modelYearHdd)) : 0;
     let remainingDaysRatio = Math.max(0, 1 - (days / 365));
@@ -3887,6 +3908,8 @@ function getDynamicTuvLimit(temp, config) {
 if (temp == null) temp = 0;
 if (temp <= config.designTemp) return config.tuv.dynMax;
 if (temp >= 5) return config.tuv.dynMin;
+// Ochrana proti dělení nulou: pokud designTemp === 5, vrať krajní hodnotu
+if (5 - config.designTemp === 0) return config.tuv.dynMax;
 return config.tuv.dynMax - ((temp - config.designTemp) * ((config.tuv.dynMax - config.tuv.dynMin) / (5 - config.designTemp)));
 }
 
@@ -4205,8 +4228,10 @@ if (run.duration < config.limits.minRun) {
     if (isPrecededByTuv || isFollowedByTuv) return false;
     
     // Kontrola zda po krátkém cyklu nenásleduje odmraz (pak nejde o rizikový start)
+    // Skenujeme až OD bodu za koncem běhu (run.end + 1) — run.end je poslední bod
+    // samotného běhu, nepatří do "následujícího" úseku a způsoboval off-by-one.
     let hasDefrostNext = false;
-    for (let k = run.end; k <= Math.min(data.length-1, run.end + 10); k++) {
+    for (let k = run.end + 1; k <= Math.min(data.length-1, run.end + 10); k++) {
         if (data[k].p_max > config.limits.defrostSpike) hasDefrostNext = true;
     }
     if (hasDefrostNext) return false;
@@ -4313,7 +4338,9 @@ const spfAll = (() => {
             elSum += d.heatWhClean   > 0 ? d.heatWhClean   : d.heatWh;
         }
     });
-    return elSum > 0 ? tpSum / elSum : 0;
+    const spf = elSum > 0 ? tpSum / elSum : 0;
+    // Sanity guard: měřený SPF musí být konečný a nezáporný, jinak výchozí 0
+    return (Number.isFinite(spf) && spf >= 0) ? spf : 0;
 })();
 
 return {
@@ -4331,6 +4358,12 @@ return {
 
 function calculateFinanceMetrics(seasonalStats, dailyStats, dynamicMonthlyCop, config, physics) {
 if (!seasonalStats) return null;
+
+// Pojmenované výchozí konstanty (fallbacky) — hodnoty zachovány beze změny
+const FIN_DEFAULT_STANDBY_W = 145;        // výchozí klidový příkon [W], když nejsou data o standby
+const FIN_DEFAULT_THERMAL_POWER_W = 2400; // výchozí tepelný výkon TČ [W] pro odhad doby chodu
+const FIN_MIN_THERMAL_POWER_W = 1800;     // minimální věrohodný tepelný výkon [W] — pod ním fallback
+const FIN_FALLBACK_MONTHLY_COP = 4.0;     // výchozí měsíční COP, když chybí v dynamicMonthlyCop
 
 const gainW_zima = physics && physics.dynamicGainW_zima !== undefined ? physics.dynamicGainW_zima : (config.internalGainW || 0);
 const gainW_prechod = physics && physics.dynamicGainW_prechod !== undefined ? physics.dynamicGainW_prechod : (config.internalGainW || 0);
@@ -4356,8 +4389,10 @@ const processSeason = (s) => {
         if (rStHrs > 0) recentStandbyW = rStWh / rStHrs;
     }
     
-    let seasonAvgStandbyW = s.standbyHours > 0 ? s.standbyWh / s.standbyHours : 145;
+    let seasonAvgStandbyW = s.standbyHours > 0 ? s.standbyWh / s.standbyHours : FIN_DEFAULT_STANDBY_W;
     let avgStandbyW = recentStandbyW > 0 ? recentStandbyW : seasonAvgStandbyW;
+    // Sanity guard: standby musí být konečný a nezáporný, jinak výchozí hodnota
+    if (!Number.isFinite(avgStandbyW) || avgStandbyW < 0) avgStandbyW = FIN_DEFAULT_STANDBY_W;
     
     let avgTuvThermalWh = (s.tuvTpWh || 0) / days;
     
@@ -4369,8 +4404,9 @@ const processSeason = (s) => {
     let estRunHours = 0;
     let modelYearHdd = 0;
 
-    let avgThermalPowerW = (s.runTimeHours && s.runTimeHours > 0) ? (s.heatTpWh / s.runTimeHours) : 2400;
-    if (avgThermalPowerW < 1800) avgThermalPowerW = 2400;
+    let avgThermalPowerW = (s.runTimeHours && s.runTimeHours > 0) ? (s.heatTpWh / s.runTimeHours) : FIN_DEFAULT_THERMAL_POWER_W;
+    // Sanity guard: tepelný výkon musí být konečný a nad minimem, jinak výchozí hodnota
+    if (!Number.isFinite(avgThermalPowerW) || avgThermalPowerW < FIN_MIN_THERMAL_POWER_W) avgThermalPowerW = FIN_DEFAULT_THERMAL_POWER_W;
 
     (config.evanTemps || []).forEach((tOut, index) => {
         const daysInMonth = config.estimations.monthDays;
@@ -4388,7 +4424,7 @@ const processSeason = (s) => {
             const usedGain = (tOut < 3) ? gainW_zima : gainW_prechod;
             
             let thermalReq = Math.max(0, (usedK * mDiff) - usedGain) * 24 * daysInMonth;
-            const currentCop = (dynamicMonthlyCop && dynamicMonthlyCop[index]) ? dynamicMonthlyCop[index] : 4.0;
+            const currentCop = (dynamicMonthlyCop && dynamicMonthlyCop[index]) ? dynamicMonthlyCop[index] : FIN_FALLBACK_MONTHLY_COP;
             // Korekce Jensenovy nerovnosti: COP(T) je konkávní → COP(avg T) > avg COP(T)
             // Pro měsíční průměrné teploty SCOP je nadhodnocen o ~5-9%.
             // Korekční faktor závisí na teplotní variabilitě (σ) a zakřivení COP(T).
@@ -4410,8 +4446,11 @@ const processSeason = (s) => {
     const estTuvKwh = yearlyTuvWhEl / 1000;
     const totalEstElKwh = (yearlyHeatWhEl / 1000) + estTuvKwh + (yearlyStandbyWhEl / 1000);
     const totalEstThermalKwh = (yearlyHeatWhThermal / 1000) + (yearlyTuvWhThermal / 1000);
-    const finalSCOP = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
-    const finalScopHeat = yearlyHeatWhEl > 0 ? yearlyHeatWhThermal / yearlyHeatWhEl : 0; 
+    let finalSCOP = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
+    let finalScopHeat = yearlyHeatWhEl > 0 ? yearlyHeatWhThermal / yearlyHeatWhEl : 0;
+    // Sanity guard: SCOP / SCOP topení musí být konečné a nezáporné, jinak výchozí 0
+    if (!Number.isFinite(finalSCOP) || finalSCOP < 0) finalSCOP = 0;
+    if (!Number.isFinite(finalScopHeat) || finalScopHeat < 0) finalScopHeat = 0;
 
     let remainingHddRatio = modelYearHdd > 0 ? Math.max(0, 1 - ((s.hdd || 0) / modelYearHdd)) : 0;
     let remainingDaysRatio = Math.max(0, 1 - (days / 365));
@@ -5200,17 +5239,37 @@ function cloneConfig(obj) {
 }
  
 // 3. VÝCHOZÍ KONFIGURACE A LIMITY
+
+// ─── Pojmenované výchozí konstanty ───────────────────────────────────────────
+// Seskupení dříve roztroušených „magických" hodnot do pojmenovaných konstant.
+// Hodnoty se NEMĚNÍ — jde čistě o čitelnost a jediné místo úprav.
+const DEFAULT_MIN_TS         = 1704067200;  // Nejstarší akceptované UNIX ts (2024-01-01)
+const DEFAULT_FLOOR_AREA     = 100;         // Vytápěná plocha [m²]
+const DEFAULT_INDOOR_TEMP    = 22.5;        // Cílová vnitřní teplota [°C]
+const DEFAULT_DESIGN_TEMP    = -15;         // Výpočtová teplota zimy [°C]
+const DEFAULT_HEATING_THRESH = 10.0;        // Hranice topné sezóny [°C]
+const DEFAULT_INTERNAL_GAIN  = 550;         // Interní zisky [W]
+const DEFAULT_LOC_LAT        = 50.3840;     // Výchozí zeměpisná šířka
+const DEFAULT_LOC_LON        = 14.0289;     // Výchozí zeměpisná délka
+const DEFAULT_PRICE_KWH      = 4.80;        // Cena elektřiny [Kč/kWh]
+const DEFAULT_HP_PRESET      = "lg_9kw";    // Výchozí předvolba TČ
+
+// Verze schématu uložené konfigurace (localStorage). Zvyš při nekompatibilní změně struktury.
+const CONFIG_VERSION = 1;
+// Klíč v localStorage pro perzistovanou konfiguraci.
+const CONFIG_STORAGE_KEY = 'vejplu_config';
+
 const DEFAULT_CONFIG = {
-    minTs: 1704067200,
+    minTs: DEFAULT_MIN_TS,
  
     // 🌍 Lokalita a Dům
-    floorArea: 100,
-    targetIndoorTemp: 22.5,
-    designTemp: -15,       // Výpočtová teplota zimy pro ztrátu domu
-    heatingThreshold: 10.0,
-    internalGainW: 550,    // Interní zisky
-    locLat: 50.3840,
-    locLon: 14.0289,
+    floorArea: DEFAULT_FLOOR_AREA,
+    targetIndoorTemp: DEFAULT_INDOOR_TEMP,
+    designTemp: DEFAULT_DESIGN_TEMP,       // Výpočtová teplota zimy pro ztrátu domu
+    heatingThreshold: DEFAULT_HEATING_THRESH,
+    internalGainW: DEFAULT_INTERNAL_GAIN,    // Interní zisky
+    locLat: DEFAULT_LOC_LAT,
+    locLon: DEFAULT_LOC_LON,
     evanTemps: [-1.3, 0.1, 3.8, 8.7, 13.6, 17.0, 18.6, 18.0, 13.6, 8.4, 3.6, 0.2],
  
     // 📈 Topná křivka a LWT
@@ -5261,7 +5320,7 @@ const DEFAULT_CONFIG = {
     },
 
     // 💰 Ekonomika & Odhady
-    priceKwh: 4.80,
+    priceKwh: DEFAULT_PRICE_KWH,
     estimations: { 
         tuvLoss: 1.08,             // Ztráta zásobníku TUV 8% (reálně 5-15%, EN 16147)
         tuvCop: 2.8,
@@ -5274,7 +5333,7 @@ const DEFAULT_CONFIG = {
 
     // 💻 Systém a UI
     system: {
-        hpPreset: "lg_9kw",
+        hpPreset: DEFAULT_HP_PRESET,
         hpName: HP_PRESETS.lg_9kw.name,
         hpMatrix: HP_PRESETS.lg_9kw.matrix,
         trendDays: 7,                    // Počet dnů pro porovnávání trendů (Termo)
@@ -5363,6 +5422,93 @@ App.uploadedFileText = null; // Nahraný soubor přes tlačítko
 // Pomocná funkce pro bezpečné vyvolání události
 App.emit = function(eventName, detail = {}) {
     document.dispatchEvent(new CustomEvent(eventName, { detail }));
+};
+
+// ─── 6. PERZISTENCE KONFIGURACE (localStorage) S VERZOVÁNÍM ────────────────────
+// Ukládání/načítání CONFIG do localStorage se schématem verze (CONFIG_VERSION).
+// Návrh je defenzivní: nikdy nespadne na poškozeném JSON ani na cizích klíčích.
+
+// Bezpečné hluboké sloučení: do cíle (target) přenese pouze ty klíče ze source,
+// které v target již existují (tj. jsou součástí výchozího schématu). Tím se
+// ignorují neznámé/zastaralé klíče a typy se drží podle výchozí konfigurace.
+function _mergeKnownKeys(target, source) {
+    if (!source || typeof source !== 'object') return target;
+    for (const key of Object.keys(target)) {
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const tv = target[key];
+        const sv = source[key];
+        if (sv === null || sv === undefined) continue;
+        if (Array.isArray(tv)) {
+            // Pole přebíráme jen pokud je uložená hodnota také pole.
+            if (Array.isArray(sv)) target[key] = sv.slice();
+        } else if (tv && typeof tv === 'object') {
+            // Vnořené objekty slučujeme rekurzivně (jen známé klíče).
+            if (sv && typeof sv === 'object' && !Array.isArray(sv)) {
+                _mergeKnownKeys(tv, sv);
+            }
+        } else {
+            // Primitiva přebíráme jen pokud sedí typ (ochrana proti poškození).
+            if (typeof sv === typeof tv) target[key] = sv;
+        }
+    }
+    return target;
+}
+
+// Uloží aktuální CONFIG do localStorage spolu s verzí schématu.
+// Vrací true při úspěchu, false při chybě (např. plné úložiště, soukromý režim).
+App.saveConfig = function () {
+    try {
+        const payload = {
+            version: CONFIG_VERSION,
+            config: CONFIG
+        };
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(payload));
+        return true;
+    } catch (e) {
+        console.error('saveConfig: nepodařilo se uložit konfiguraci do localStorage', e);
+        return false;
+    }
+};
+
+// Načte konfiguraci z localStorage a bezpečně ji sloučí přes výchozí hodnoty.
+// Migrace: chybí-li verze nebo je starší než CONFIG_VERSION, uložené hodnoty se
+// pouze opatrně přelijí přes čerstvé DEFAULT_CONFIG (žádné pole se neztratí).
+// Při poškozeném/chybějícím JSON se tiše vrátí výchozí konfigurace (NIKDY nespadne).
+App.loadConfig = function () {
+    // Vždy začínáme z čisté kopie výchozí konfigurace.
+    const merged = cloneConfig(DEFAULT_CONFIG);
+
+    let raw = null;
+    try {
+        raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    } catch (e) {
+        console.error('loadConfig: localStorage není dostupné', e);
+        return merged;
+    }
+    if (!raw) return merged;
+
+    let parsed = null;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (e) {
+        console.error('loadConfig: poškozený JSON v localStorage, používám výchozí konfiguraci', e);
+        return merged;
+    }
+    if (!parsed || typeof parsed !== 'object') return merged;
+
+    // Zpětná kompatibilita: starší formát mohl ukládat holý CONFIG bez obálky.
+    const storedVersion = typeof parsed.version === 'number' ? parsed.version : 0;
+    const storedConfig = (parsed.config && typeof parsed.config === 'object') ? parsed.config : parsed;
+
+    if (storedVersion > CONFIG_VERSION) {
+        // Novější schéma, než umíme — raději zůstaneme u výchozích hodnot.
+        console.error('loadConfig: uložená verze (' + storedVersion + ') je novější než ' + CONFIG_VERSION + ', používám výchozí konfiguraci');
+        return merged;
+    }
+
+    // Bezpečné sloučení uložených hodnot přes výchozí schéma (migrace).
+    _mergeKnownKeys(merged, storedConfig);
+    return merged;
 };
 
 
@@ -5629,6 +5775,74 @@ App.setLoading = function(isLoading, text = "Zpracovávám data...") {
     else overlay.classList.remove('visible');
 };
 
+// ─── 5. NUMERICKÁ VALIDACE A OŘEZ (čisté funkce) ─────────────────────────────
+// Pomocné funkce pro bezpečné čtení a omezení číselných vstupů.
+// Použitelné mj. v App.updateConfig() pro odolnost proti prázdným/NaN hodnotám.
+
+// Bezpečně převede hodnotu na číslo. Při prázdném/NaN/nečíselném vstupu vrátí fallback.
+// Pozn.: prázdný string i null/undefined jsou považovány za neplatné (vrací fallback),
+// na rozdíl od Number(''), které vrací 0.
+function safeNum(value, fallback = 0) {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string' && value.trim() === '') return fallback;
+    const n = typeof value === 'number' ? value : parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+// Ořeže číslo do rozsahu [min, max]. Neplatný vstup → fallback (a ten se rovněž ořeže).
+// Pokud je fallback mimo rozsah, je rovněž přitažen do [min, max], aby výstup byl vždy platný.
+function clampNumber(value, min, max, fallback = 0) {
+    let n = safeNum(value, NaN);
+    if (!Number.isFinite(n)) n = fallback;
+    // Ochrana proti prohozeným mezím
+    if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
+        const tmp = min; min = max; max = tmp;
+    }
+    if (Number.isFinite(min) && n < min) n = min;
+    if (Number.isFinite(max) && n > max) n = max;
+    return n;
+}
+
+// ─── 6. CENTRALIZOVANÉ ČESKÉ FORMÁTOVÁNÍ (Intl cs-CZ) ────────────────────────
+// Kanonické formátovací helpery pro budoucí použití. Všechny jsou null-safe:
+// pro null/undefined/NaN vrací '-'. Existující formátování v kódu nenahrazují.
+
+// Cache instancí Intl.NumberFormat (vytváření je relativně drahé).
+const _csNumFmtCache = {};
+function _csNumberFormat(decimals) {
+    const key = String(decimals);
+    if (!_csNumFmtCache[key]) {
+        _csNumFmtCache[key] = new Intl.NumberFormat('cs-CZ', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+    }
+    return _csNumFmtCache[key];
+}
+
+// Naformátuje číslo dle cs-CZ (desetinná čárka, mezera jako oddělovač tisíců).
+function formatNumber(n, decimals = 0) {
+    const v = safeNum(n, NaN);
+    if (!Number.isFinite(v)) return '-';
+    try {
+        return _csNumberFormat(decimals).format(v);
+    } catch (e) {
+        return v.toFixed(decimals);
+    }
+}
+
+// Naformátuje částku v Kč (0 desetinných míst, s příponou „ Kč").
+function formatCurrency(n) {
+    const s = formatNumber(n, 0);
+    return s === '-' ? '-' : s + ' Kč';
+}
+
+// Naformátuje procenta (1 desetinné místo, s příponou „ %"). Vstup je hodnota v %, ne podíl.
+function formatPercent(n, decimals = 1) {
+    const s = formatNumber(n, decimals);
+    return s === '-' ? '-' : s + ' %';
+}
+
 
 
 </script>
@@ -5639,11 +5853,89 @@ App.setLoading = function(isLoading, text = "Zpracovávám data...") {
 workerBlob = new Blob([document.getElementById('workerScript').textContent], { type: "text/javascript" });
 worker = new Worker(window.URL.createObjectURL(workerBlob));
 
+// ─── 1a. WATCHDOG STAV ──────────────────────────────────────────────────────
+// Hlídací časovač pro „zaseknuté" joby. Klíčujeme podle jobId, aby se
+// překrývající se joby nerušily navzájem (např. prefetch vs. hlavní výpočet).
+window.__tcWatchdogs = window.__tcWatchdogs || {};
+const WATCHDOG_TIMEOUT_MS = 30000; // ~30 s na dokončení těžkého výpočtu
+
+// Spustí hlídací časovač pro daný jobId. Pokud nedorazí terminální zpráva
+// (RESULT/NO_DATA/ERROR) pro tento job včas, odblokujeme UI a upozorníme.
+function startWatchdog(jobId) {
+    try {
+        clearWatchdog(jobId);
+        window.__tcWatchdogs[jobId] = setTimeout(function () {
+            // Reagujeme jen pokud je tento job stále aktuální
+            if (jobId === currentJobId) {
+                if (typeof App !== 'undefined' && App) {
+                    if (typeof App.setLoading === 'function') App.setLoading(false);
+                    if (typeof App.showError === 'function') App.showError('Analýza trvá neobvykle dlouho…');
+                    if (typeof App.handleNoData === 'function') App.handleNoData();
+                }
+            }
+            delete window.__tcWatchdogs[jobId];
+        }, WATCHDOG_TIMEOUT_MS);
+    } catch (e) {
+        console.error('startWatchdog: nepodařilo se spustit hlídací časovač', e);
+    }
+}
+
+// Zruší hlídací časovač pro daný jobId (po doručení terminální zprávy).
+function clearWatchdog(jobId) {
+    try {
+        if (window.__tcWatchdogs && window.__tcWatchdogs[jobId] !== undefined) {
+            clearTimeout(window.__tcWatchdogs[jobId]);
+            delete window.__tcWatchdogs[jobId];
+        }
+    } catch (e) {
+        console.error('clearWatchdog: nepodařilo se zrušit hlídací časovač', e);
+    }
+}
+
+// ─── 1c. GLOBÁLNÍ ODCHYT NEOŠETŘENÝCH CHYB ──────────────────────────────────
+// Surfacujeme neodchycené výjimky a odmítnuté promisy přes App.showError,
+// aby UI nezůstalo viset bez zpětné vazby. Chráníme se proti smyčce vlastní chyby.
+window.__tcInGlobalErrorHandler = false;
+window.addEventListener('error', function (ev) {
+    if (window.__tcInGlobalErrorHandler) return;
+    window.__tcInGlobalErrorHandler = true;
+    try {
+        const m = (ev && ev.message) || (ev && ev.error && ev.error.message) || 'neznámá chyba';
+        console.error('Neodchycená chyba:', (ev && ev.error) || m);
+        if (typeof App !== 'undefined' && App && typeof App.showError === 'function') {
+            App.showError('Došlo k neočekávané chybě: ' + m);
+        }
+    } catch (e) {
+        console.error('window.onerror handler selhal', e);
+    } finally {
+        window.__tcInGlobalErrorHandler = false;
+    }
+});
+window.addEventListener('unhandledrejection', function (ev) {
+    if (window.__tcInGlobalErrorHandler) return;
+    window.__tcInGlobalErrorHandler = true;
+    try {
+        const reason = ev && ev.reason;
+        const m = (reason && reason.message) || (typeof reason === 'string' ? reason : 'neznámá chyba');
+        console.error('Neošetřený odmítnutý promise:', reason);
+        if (typeof App !== 'undefined' && App && typeof App.showError === 'function') {
+            App.showError('Došlo k neočekávané chybě: ' + m);
+        }
+    } catch (e) {
+        console.error('window.onunhandledrejection handler selhal', e);
+    } finally {
+        window.__tcInGlobalErrorHandler = false;
+    }
+});
+
 // ─── 1b. NEODCHYCENÉ CHYBY WORKERU ──────────────────────────────────────────
 // Worker hlásí očekávané chyby přes postMessage({type:'ERROR'}), ale
 // neodchycená výjimka (mimo try/catch nebo odmítnutý promise v async onmessage)
 // by jinak nechala UI viset na loading overlayi bez zpětné vazby.
 worker.onerror = function (err) {
+    // Neodchycená chyba workeru je terminální pro běžící job — zrušíme jeho
+    // hlídací časovač, ať se za ~30 s zbytečně nespustí znovu a nepřepíše UI.
+    try { clearWatchdog(currentJobId); } catch (e) { console.error('worker.onerror: clearWatchdog selhal', e); }
     if (typeof App !== 'undefined' && App) {
         if (typeof App.setLoading === 'function') App.setLoading(false);
         if (typeof App.showError === 'function') App.showError('Chyba výpočetního jádra: ' + ((err && err.message) || 'neznámá chyba'));
@@ -5653,8 +5945,12 @@ worker.onerror = function (err) {
 
 // ─── 2. PŘÍJEM ZPRÁV Z WORKERU (onmessage) ──────────────────────────────────
 worker.onmessage = function (e) {
-    const msg = e.data;
-    if (!msg) return;
+    const msg = e ? e.data : null;
+    // Validace tvaru zprávy: musí to být objekt s textovým polem `type`.
+    if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') {
+        console.error('worker.onmessage: ignoruji neplatnou zprávu z workeru', msg);
+        return;
+    }
 
     // --- Zpracování výsledku exportu z Workeru ---
     if (msg.type === 'EXPORT_RESULT') {
@@ -5684,6 +5980,7 @@ worker.onmessage = function (e) {
  
     // --- Chyba ---
     if (msg.type === 'ERROR') {
+        clearWatchdog(msg.jobId); // terminální zpráva — hlídací časovač už není třeba
         App.setLoading(false);
         if (typeof App.showError === 'function') App.showError("Chyba analýzy: " + (msg.error || "Neznámá chyba"));
         
@@ -5704,6 +6001,7 @@ worker.onmessage = function (e) {
  
     // --- HLAVNÍ VÝSLEDEK (RESULT) ---
     if (msg.type === 'RESULT') {
+        clearWatchdog(msg.jobId); // terminální zpráva — hlídací časovač už není třeba
         App.setLoading(false);
         
         const noData = document.getElementById('noDataMsg');
@@ -5769,6 +6067,7 @@ worker.onmessage = function (e) {
     }
  
     if (msg.type === 'NO_DATA') {
+        clearWatchdog(msg.jobId); // terminální zpráva — hlídací časovač už není třeba
         App.setLoading(false);
         if (statusEl) {
             statusEl.innerText = "Žádná data pro zvolené období";
@@ -5787,6 +6086,32 @@ App.handleFileUpload = async function (input) {
     const files = Array.from(input.files);
     const statusEl = document.getElementById('statusFreq');
     const textParts = [];
+
+    // ── Pojistka na velikost: u velmi velkých logů varujeme uživatele ──
+    try {
+        let totalSize = 0;
+        for (let i = 0; i < files.length; i++) {
+            totalSize += (files[i] && files[i].size) || 0;
+        }
+        const LIMIT_BYTES = 50 * 1024 * 1024; // 50 MB
+        if (totalSize > LIMIT_BYTES) {
+            const mb = (totalSize / (1024 * 1024)).toFixed(0);
+            const proceed = (typeof window.confirm === 'function')
+                ? window.confirm('Vybrané soubory jsou velmi velké (' + mb + ' MB). Zpracování může být pomalé nebo selhat. Pokračovat?')
+                : true;
+            if (!proceed) {
+                if (statusEl) {
+                    statusEl.innerText = "Načítání zrušeno";
+                    statusEl.style.borderLeftColor = "var(--warning)";
+                    statusEl.style.color = "var(--warning)";
+                }
+                input.value = ''; // Reset file inputu
+                return;
+            }
+        }
+    } catch (e) {
+        console.error('handleFileUpload: kontrola velikosti souborů selhala', e);
+    }
 
     try {
         // TVRDÝ RESET PAMĚTI
@@ -5813,8 +6138,9 @@ App.handleFileUpload = async function (input) {
         // Okamžité promazání UI
         if (typeof App.handleNoData === 'function') App.handleNoData();
         App.emit('updateStats', null);
-        try { App.updateFinanceView(); } catch(e){}
-        try { App.updateThermoTab(); } catch(e){}
+        // Pozn.: tyto pohledy nemusí být inicializované při prvním nahrání — chybu jen logujeme
+        try { App.updateFinanceView(); } catch(e){ console.error('handleFileUpload: updateFinanceView selhal', e); }
+        try { App.updateThermoTab(); } catch(e){ console.error('handleFileUpload: updateThermoTab selhal', e); }
         
         // Reset do výchozího stavu času, aby aplikace sama skočila na nová data
         currentSelectionMode = 'day';
@@ -5844,7 +6170,28 @@ App.handleFileUpload = async function (input) {
 
         // ULOŽENÍ DO PAMĚTI A ZAPOMENUTÍ TEXTAREA "A"
         App.uploadedFileText = textParts.join("\n");
-        
+
+        // ── Rychlá kontrola formátu: prázdný nebo zjevně neparsovatelný log ──
+        // Platný log z TČ je oddělený (např. ';' nebo ',') a má více řádků.
+        const _trimmed = (App.uploadedFileText || "").trim();
+        const _looksLikeLog = _trimmed.length > 5
+            && /[\r\n]/.test(_trimmed)
+            && /[;,\t]/.test(_trimmed);
+        if (!_looksLikeLog) {
+            console.error('handleFileUpload: nahraný soubor nevypadá jako platný log z TČ (délka=' + _trimmed.length + ')');
+            App.uploadedFileText = "";
+            if (statusEl) {
+                statusEl.innerText = "Neplatný formát logu";
+                statusEl.style.borderLeftColor = "var(--danger)";
+                statusEl.style.color = "var(--danger)";
+            }
+            if (typeof App.showError === 'function') App.showError('Soubor nevypadá jako platný log z TČ. Zkontrolujte, zda nahráváte správný exportní soubor.');
+            if (typeof App.handleNoData === 'function') App.handleNoData();
+            input.value = ''; // Reset file inputu
+            textParts.length = 0;
+            return;
+        }
+
         const dataInput = document.getElementById('dataInput');
         if (dataInput) {
             dataInput.value = "A"; // Natvrdo přepíšeme stará data ze zkratky
@@ -5979,6 +6326,9 @@ App.runPipeline = function () {
                 prefetchDates: prefetchDates
             });
             workerHasData = true;
+            // Spustíme hlídací časovač — pokud worker do ~30 s nepošle terminální
+            // zprávu pro tento job, odblokujeme UI a upozorníme uživatele.
+            startWatchdog(currentJobId);
         } catch (err) {
             App.setLoading(false);
             if (statusEl) {
@@ -6143,6 +6493,8 @@ App.initCharts = function (type) {
             if (d.temp != null) {
                 if (d.temp <= c.tOutMin) lwtTarget = c.lwtMax.toFixed(1);
                 else if (d.temp >= c.tOutMax) lwtTarget = c.lwtMin.toFixed(1);
+                // Ochrana proti dělení nulou (tOutMax === tOutMin) — fallback na lwtMax
+                else if (c.tOutMax === c.tOutMin) lwtTarget = c.lwtMax.toFixed(1);
                 else lwtTarget = (c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (d.temp - c.tOutMin)).toFixed(1);
             }
 
@@ -6154,23 +6506,25 @@ App.initCharts = function (type) {
             if (hk > 0 && d.temp != null) {
                 let usedGain = (d.temp < 3) ? gains.zima : gains.prechod;
                 let dem = hk * (CONFIG.targetIndoorTemp - d.temp) - usedGain;
-                demandHtml = `<div class="ct-div"></div><div class="ct-item" style="color:#eab308">🏠 ≈ ${Math.max(0, Math.round(dem))} W</div>`;
+                // Ochrana proti NaN (např. chybějící targetIndoorTemp/usedGain)
+                let demTxt = Number.isFinite(dem) ? Math.max(0, Math.round(dem)) + ' W' : '-';
+                demandHtml = `<div class="ct-div"></div><div class="ct-item" style="color:#eab308">🏠 ≈ ${demTxt}</div>`;
             }
 
             tooltipEl.innerHTML = `
                 <div class="ct-row">
-                    <div class="ct-item" style="color:var(--accent)">⚡ ${d.p != null ? Math.round(d.p) : '-'} W</div>
+                    <div class="ct-item" style="color:var(--accent)">⚡ ${(d.p != null && Number.isFinite(d.p)) ? Math.round(d.p) : '-'} W</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--success)">🔥 ${d.tp != null ? Math.round(d.tp) : '-'} W</div>
+                    <div class="ct-item" style="color:var(--success)">🔥 ${(d.tp != null && Number.isFinite(d.tp)) ? Math.round(d.tp) : '-'} W</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--weather)">COP ${d.cop ? d.cop.toFixed(2) : '-'}</div>
+                    <div class="ct-item" style="color:var(--weather)">COP ${(d.cop != null && Number.isFinite(d.cop) && d.cop > 0) ? d.cop.toFixed(2) : '-'}</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--oil)">⚡️ ${d.v != null ? d.v.toFixed(1) : '-'} V</div>
+                    <div class="ct-item" style="color:var(--oil)">⚡️ ${(d.v != null && Number.isFinite(d.v)) ? d.v.toFixed(1) : '-'} V</div>
                 </div>
                 <div class="ct-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;">
                     <div class="ct-item">🕒 ${time}</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--weather)">🌡️ ${d.temp != null ? d.temp.toFixed(1) : '-'} °C</div>
+                    <div class="ct-item" style="color:var(--weather)">🌡️ ${(d.temp != null && Number.isFinite(d.temp)) ? d.temp.toFixed(1) : '-'} °C</div>
                     <div class="ct-div"></div>
                     <div class="ct-item" style="color:#f87171">♨️ ${lwtTarget} °C</div>
                     ${demandHtml}
@@ -6341,13 +6695,13 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
             }
         }
 
-        if (!d || !d.length) { if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
-        
+        if (!d || !d.length) { if(typeof App.showEmptyState==='function') App.showEmptyState(); else if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
+
         const targetWidth = Math.max(d.length * (isMonthlyScale ? 80 : 40), cW);
         holderMain.style.width = targetWidth + 'px';
         if (holderVolt) holderVolt.style.width = targetWidth + 'px';
         
-        if (voltChart) { voltChart.data.labels = []; voltChart.update(); }
+        if (voltChart) { voltChart.data.labels = []; voltChart.update('none'); }
         myChart.data.labels = d.map(x => x.label);
         
         let datasets = [];
@@ -6444,7 +6798,7 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
         return targetWidth;
     }
 
-    if (!wData || !wData.length) { if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
+    if (!wData || !wData.length) { if(typeof App.showEmptyState==='function') App.showEmptyState(); else if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
 
     let z = zoomLevels[currentView] || 1.0;
     
@@ -6570,6 +6924,8 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
             if (d.temp == null) return { x: d.ts, y: null };
             if (d.temp <= c.tOutMin) return { x: d.ts, y: c.lwtMax };
             if (d.temp >= c.tOutMax) return { x: d.ts, y: c.lwtMin };
+            // Ochrana proti dělení nulou (tOutMax === tOutMin) — fallback na lwtMax
+            if (c.tOutMax === c.tOutMin) return { x: d.ts, y: c.lwtMax };
             return { x: d.ts, y: c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (d.temp - c.tOutMin) };
         }),
         borderColor: 'rgba(248, 113, 113, 0.7)',
@@ -6688,6 +7044,38 @@ App.renderCurvePage = function () {
 };
 
 
+// ─── 3. PŘÍVĚTIVĚJŠÍ STAV "ŽÁDNÁ DATA" ──────────────────────────────────────
+// Nastaví přátelštější text do prvku #noDataMsg (pokud existuje) a deleguje na
+// stávající App.handleNoData (vyčistí grafy). Bezpečné volat kdykoli.
+App.showEmptyState = function (hint) {
+    const msg = document.getElementById('noDataMsg');
+    if (msg) {
+        msg.innerHTML = hint || '📊 Žádná data k zobrazení.<br><span style="font-size:0.8em; font-weight:400; opacity:0.8;">Nahraj prosím log (CSV) pro vykreslení grafu.</span>';
+    }
+    if (typeof App.handleNoData === 'function') App.handleNoData();
+};
+
+
+// ─── 4. RESET ZOOMU / SCROLLU GRAFU ─────────────────────────────────────────
+// Vrátí horizontální scroll/zoom transformaci držáku grafu do výchozího stavu.
+// Bezpečné volat i když prvky/grafy neexistují.
+App.resetChartZoom = function () {
+    try {
+        const scroller = document.getElementById('scrollContainerMain');
+        if (scroller) scroller.scrollLeft = 0;
+
+        // Reset případné CSS transformace na držácích plátna
+        ['canvasHolderMain', 'canvasHolderVolt'].forEach(function (id) {
+            const el = document.getElementById(id);
+            if (el) el.style.transform = '';
+        });
+
+        // Reset úrovně zoomu pro aktuální pohled na výchozí hodnotu
+        if (typeof zoomLevels !== 'undefined' && typeof currentView !== 'undefined') {
+            zoomLevels[currentView] = (currentView === 'bar' ? 0.1 : 1.0);
+        }
+    } catch (e) { }
+};
 
 
 
@@ -8083,11 +8471,17 @@ App.customHpEdited = function () {
 App.toggleMode = function(cb) {
     currentAppMode = cb.checked ? 'user' : 'analyst';
     document.body.className = 'mode-' + currentAppMode;
-    
+
+    // Zapamatuj zvolený režim (#69)
+    try { localStorage.setItem('tcAppMode', currentAppMode); } catch (e) {}
+
+    // Skryj/zobraz technické záložky podle režimu (#67)
+    App.applyModeNav();
+
     if (currentStats) {
         App.emit('updateStats', currentStats);
     }
-    
+
     setTimeout(() => {
         if (currentView === 'line' || currentView === 'bar' || currentView === 'thermal') {
             if (lastWindowData && lastWindowData.length > 0) {
@@ -8095,6 +8489,20 @@ App.toggleMode = function(cb) {
             }
         }
     }, 50);
+};
+
+// Skrytí technických záložek (Termo, volitelně Grafy) v uživatelském režimu (#67).
+// Nemaže z DOM — pouze přepíná třídu .nav-hidden-user.
+App.applyModeNav = function() {
+    const navItems = document.querySelectorAll('.bottom-nav .nav-item');
+    navItems.forEach(item => {
+        const oc = item.getAttribute('onclick') || '';
+        // V uživatelském režimu skryj "Termo" (a "Grafy")
+        const isTechnical = oc.includes("'thermo'") || oc.includes("'charts'");
+        if (isTechnical) {
+            item.classList.toggle('nav-hidden-user', currentAppMode === 'user');
+        }
+    });
 };
 
 App.updateSimulators = function() {
@@ -8177,9 +8585,25 @@ App.generateInsights = function() {
 
     if (window.currentNoobScore && window.currentNoobScore.story) {
         box.innerHTML = `<div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; border-left: 4px solid var(--accent); font-size: 0.8rem;">${window.currentNoobScore.story}</div>`;
+        // Akční výzva (#83–84): odkaz do simulátorů úspor — jen pokud máme obsah
+        const cta = document.createElement('button');
+        cta.className = 'insights-cta';
+        cta.type = 'button';
+        cta.innerText = 'Vyzkoušet úspory →';
+        cta.setAttribute('aria-label', 'Přejít do simulátorů úspor');
+        cta.onclick = () => { try { App.switchTab('simulators'); } catch (e) {} };
+        box.appendChild(cta);
     } else {
         box.innerHTML = `<i>Čekám na data pro vygenerování postřehů...</i>`;
     }
+};
+
+// Krátká česká vysvětlení jednotlivých skóre koleček (tap-to-explain #74–76)
+App.scoreExplains = {
+    userScoreEcon:   'Účinnost: jak hospodárně TČ vyrábí teplo (poměr tepla k odebrané elektřině). Vyšší = levnější provoz.',
+    userScoreHealth: 'Zdraví: jak šetrně kompresor pracuje — málo zbytečných startů a defrostů znamená delší životnost.',
+    userScoreSmooth: 'Plynulost: jak dlouhé a klidné jsou topné cykly. Plynulý chod chrání kompresor a šetří energii.',
+    userScoreLoad:   'Izolace: jak dobře dům drží teplo. Lepší obálka budovy znamená menší tepelné ztráty a nižší účet.'
 };
 
 App.updateNoobScores = function() {
@@ -8191,17 +8615,53 @@ App.updateNoobScores = function() {
     let circleSmooth = document.getElementById('userScoreSmooth');
     let circleLoad  = document.getElementById('userScoreLoad');
 
+    // Jednoslovný verdikt pod kolečkem podle hodnoty
+    const verdictFor = (val) => {
+        if (val >= 80) return { txt: 'Výborné', col: 'var(--success)' };
+        if (val >= 50) return { txt: 'Dobré',   col: 'var(--warning)' };
+        return { txt: 'Pozor', col: 'var(--danger)' };
+    };
+
     const applyColor = (el, val) => {
         if (!el) return;
         let col = 'var(--danger)';
         if (val >= 80) col = 'var(--success)';
         else if (val >= 55) col = 'var(--accent)';
         else if (val >= 35) col = 'var(--warning)';
-        
+
         el.innerText = Math.round(val) + '%';
         el.style.borderColor = col;
         el.style.color = col;
         el.style.boxShadow = `inset 0 0 15px ${col}80`;
+
+        // Verdikt + tap-to-explain: kolečko je klikací a má pod sebou slovní verdikt
+        const v = verdictFor(val);
+        const parent = el.parentElement;
+        if (parent) {
+            let vEl = parent.querySelector('.score-verdict');
+            if (!vEl) {
+                vEl = document.createElement('div');
+                vEl.className = 'score-verdict';
+                // Vlož verdikt hned za kolečko (před stávající popisek .score-lbl)
+                if (el.nextSibling) parent.insertBefore(vEl, el.nextSibling);
+                else parent.appendChild(vEl);
+            }
+            vEl.innerText = v.txt;
+            vEl.style.color = v.col;
+        }
+
+        // Tap-to-explain pouze jednou (idempotentní)
+        if (!el.dataset.explainBound) {
+            el.dataset.explainBound = '1';
+            el.classList.add('score-clickable');
+            el.style.cursor = 'pointer';
+            el.setAttribute('role', 'button');
+            el.setAttribute('tabindex', '0');
+            el.addEventListener('click', () => {
+                const msg = App.scoreExplains[el.id];
+                if (msg && typeof App.showError === 'function') App.showError(msg);
+            });
+        }
     };
 
     applyColor(circleEcon, sc.efficiency);
@@ -8280,7 +8740,14 @@ App.updateLifespan = function() {
             detail = `Starty převyšují motohodiny o ${overPct} %. Nutná kontrola: malý zásobník, špatná hydraulika nebo příliš citlivý termostat výrazně zkracují životnost.`;
         }
 
+        // Srozumitelný verdikt jednou větou (#98–99)
+        let verdict, vCol;
+        if (ratio >= 1.2)        { verdict = '✔️ TČ je v kondici'; vCol = 'var(--success)'; }
+        else if (ratio >= 0.95)  { verdict = '⚠️ Sledujte cyklování'; vCol = 'var(--warning)'; }
+        else                     { verdict = '❗ Kompresor se opotřebovává rychleji'; vCol = 'var(--danger)'; }
+
         analysisEl.innerHTML =
+            `<div class="wear-verdict" style="color:${vCol};">${verdict}</div>` +
             `<span style="font-weight:800; color:${ratio >= 1.2 ? 'var(--success)' : ratio >= 0.95 ? 'var(--warning)' : 'var(--danger)'};">${ico} ${qual}</span>` +
             ` — ${hlavni}<br><span style="color:var(--text-dim);">${detail}</span>`;
     } else if (analysisEl) {
@@ -8303,8 +8770,126 @@ App.updateLifespan = function() {
     }
 };
 
+// ─── 8b. UX VYLEPŠENÍ: STYLY, PŘÍSTUPNOST, PAMĚŤ REŽIMU ─────────────────────
+
+// Jednorázová injektáž CSS tříd, které UI logika používá (kolečka, verdikty,
+// akční výzva v postřezích a skrytí technických záložek v uživatelském režimu).
+// CSS lze přidat jen za běhu, proto vytvoříme <style> a vložíme do <head>.
+App.injectUxStyles = function() {
+    if (document.getElementById('uxStylesInjected')) return;
+    const style = document.createElement('style');
+    style.id = 'uxStylesInjected';
+    style.textContent = `
+        /* Skrytí technické záložky (Termo/Grafy) v uživatelském režimu (#67) */
+        .bottom-nav .nav-item.nav-hidden-user { display: none !important; }
+
+        /* Slovní verdikt pod skóre kolečkem (#74–76) */
+        .score-verdict {
+            font-size: 0.62rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-top: 3px;
+            text-align: center;
+        }
+        /* Klikací kolečko skóre (tap-to-explain #74–76) */
+        .score-clickable { transition: transform 0.15s ease; }
+        .score-clickable:hover { transform: scale(1.04); }
+        .score-clickable:active { transform: scale(0.96); }
+        .score-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        /* Akční výzva v boxu postřehů — odkaz do simulátorů úspor (#83–84) */
+        .insights-cta {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #0c0f17;
+            font-size: 0.78rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: filter 0.2s ease, transform 0.15s ease;
+        }
+        .insights-cta:hover { filter: brightness(1.1); }
+        .insights-cta:active { transform: scale(0.97); }
+        .insights-cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+        /* Srozumitelný verdikt opotřebení kompresoru (#98–99) */
+        .wear-verdict {
+            font-size: 0.85rem;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+    `;
+    document.head.appendChild(style);
+};
+
+// Obnovení zapamatovaného režimu z localStorage při startu (#69) a srozumitelný
+// popisek přepínače "Jednoduchý / Expertní" (#68).
+App.restoreAppMode = function() {
+    let saved = null;
+    try { saved = localStorage.getItem('tcAppMode'); } catch (e) {}
+    if (saved === 'user' || saved === 'analyst') {
+        currentAppMode = saved;
+    }
+    document.body.className = 'mode-' + currentAppMode;
+
+    // Synchronizace přepínače: zaškrtnuto = uživatelský (jednoduchý) režim
+    const cb = document.getElementById('mainModeToggle');
+    if (cb) cb.checked = (currentAppMode === 'user');
+
+    // Jasný popisek přepínače (#68) — pokud existuje sousední text, přepíšeme jej
+    const toggleLabel = cb ? cb.closest('label') : null;
+    const labelText = toggleLabel && toggleLabel.previousElementSibling
+        ? toggleLabel.previousElementSibling
+        : null;
+    if (labelText) labelText.innerText = 'Jednoduchý / Expertní:';
+    const switchEl = cb ? cb.closest('.switch') : null;
+    if (switchEl) switchEl.setAttribute('title', 'Přepnout režim: Jednoduchý / Expertní');
+
+    App.applyModeNav();
+};
+
+// Přístupnost: aria-labely na tlačítka jen s emoji + nav položky (#132).
+App.initAriaLabels = function() {
+    const setAria = (id, label) => {
+        const el = document.getElementById(id);
+        if (el && !el.getAttribute('aria-label')) el.setAttribute('aria-label', label);
+    };
+    setAria('floatingExport', 'Export dat');
+    setAria('floatingSettings', 'Nastavení');
+
+    // Spodní navigace — přečteme český text z položky a doplníme aria-label
+    document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
+        if (item.getAttribute('aria-label')) return;
+        const span = item.querySelector('span');
+        const txt = span ? span.innerText.trim() : '';
+        if (txt) item.setAttribute('aria-label', 'Záložka ' + txt);
+        item.setAttribute('role', 'button');
+    });
+};
+
+// Escape zavře jakékoliv otevřené modální okno (#133) — používá stávající vzor
+// (odebrání třídy .open). Jediný globální listener.
+App.initEscModalClose = function() {
+    if (App._escBound) return;
+    App._escBound = true;
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' && e.key !== 'Esc') return;
+        const open = document.querySelectorAll('.modal-overlay.open');
+        if (open.length === 0) return;
+        open.forEach(m => m.classList.remove('open'));
+    });
+};
+
 // ─── 9. EVENT LISTENERY A BOOTSTRAP ────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // UX vylepšení: styly, přístupnost, paměť režimu (#67–69, #132–133)
+    try { App.injectUxStyles(); } catch (e) {}
+    try { App.initAriaLabels(); } catch (e) {}
+    try { App.initEscModalClose(); } catch (e) {}
     let tSlider = document.getElementById('simTempSlider');
     if(tSlider) tSlider.addEventListener('input', App.updateSimulators);
     
@@ -8339,8 +8924,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof App.initCharts === 'function') App.initCharts('line');
     if (typeof App.smartNav === 'function') App.smartNav(0);
 
-    // Nastavení výchozího režimu aplikace
-    document.body.className = 'mode-' + currentAppMode;
+    // Nastavení režimu aplikace — obnoví zapamatovaný režim (#69), popisek (#68)
+    // a skrytí technických záložek (#67).
+    try { App.restoreAppMode(); } catch (e) { document.body.className = 'mode-' + currentAppMode; }
 
     const cb = document.querySelector('.chart-box');
     const holder = document.getElementById('canvasHolderMain');

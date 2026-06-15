@@ -123,6 +123,8 @@ function estimateCOPRaw(temp, config) {
     let targetLWT;
     if (temp <= c.tOutMin) targetLWT = c.lwtMax;
     else if (temp >= c.tOutMax) targetLWT = c.lwtMin;
+    // Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+    else if (c.tOutMax - c.tOutMin === 0) targetLWT = c.lwtMax;
     else targetLWT = c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (temp - c.tOutMin);
     const raw = bilinearInterpolation(parsedCopMatrix, LWT_HEADERS, temp, targetLWT);
     return raw < 1.0 ? 1.0 : raw;
@@ -149,6 +151,8 @@ else {
     const c = config.curve;
     if (temp <= c.tOutMin) targetLWT = c.lwtMax;
     else if (temp >= c.tOutMax) targetLWT = c.lwtMin;
+    // Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+    else if (c.tOutMax - c.tOutMin === 0) targetLWT = c.lwtMax;
     else targetLWT = c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (temp - c.tOutMin);
 }
 let finalCop = bilinearInterpolation(parsedCopMatrix, LWT_HEADERS, temp, targetLWT);
@@ -193,6 +197,8 @@ const c = config.curve;
 let targetLWT;
 if (temp <= c.tOutMin) targetLWT = c.lwtMax;
 else if (temp >= c.tOutMax) targetLWT = c.lwtMin;
+// Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+else if (c.tOutMax - c.tOutMin === 0) targetLWT = c.lwtMax;
 else targetLWT = c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (temp - c.tOutMin);
 return bilinearInterpolation(parsedTcMatrix, LWT_HEADERS, temp, targetLWT);
 }
@@ -674,6 +680,8 @@ let heatLWT = (c && Number.isFinite(c.lwtMin)) ? c.lwtMin : 35;
 if (c && Number.isFinite(c.lwtMax) && Number.isFinite(c.lwtMin) && Number.isFinite(c.tOutMin) && Number.isFinite(c.tOutMax)) {
     if      (avgTemp <= c.tOutMin) heatLWT = c.lwtMax;
     else if (avgTemp >= c.tOutMax) heatLWT = c.lwtMin;
+    // Ochrana proti dělení nulou: pokud tOutMax === tOutMin, použij krajní LWT
+    else if (c.tOutMax - c.tOutMin === 0) heatLWT = c.lwtMax;
     else { const t = (avgTemp - c.tOutMin) / (c.tOutMax - c.tOutMin); heatLWT = c.lwtMax + t * (c.lwtMin - c.lwtMax); }
 }
 const tuvLWT = (c && Number.isFinite(c.tuvLwt)) ? c.tuvLwt : 55;
@@ -1191,6 +1199,12 @@ if (config && config.system && config.system.hpMatrix) {
     parseCopData(config.system.hpMatrix);
 }
 
+// Pojmenované výchozí konstanty (fallbacky) — hodnoty zachovány beze změny
+const DEFAULT_STANDBY_W = 145;        // výchozí klidový příkon [W], když nejsou data o standby
+const DEFAULT_THERMAL_POWER_W = 2400; // výchozí tepelný výkon TČ [W] pro odhad doby chodu
+const MIN_THERMAL_POWER_W = 1800;     // minimální věrohodný tepelný výkon [W] — pod ním fallback
+const FALLBACK_MONTHLY_COP = 4.0;     // výchozí měsíční COP, když chybí v dynamicMonthlyCop
+
 if (type === 'GENERATE_EXPORT') {
     if (!memCache) {
         self.postMessage({ type: 'EXPORT_RESULT', jobId, textDisplay: 'Chyba: Žádná data v paměti.' });
@@ -1243,7 +1257,9 @@ if (type === 'GENERATE_EXPORT') {
         if (rStHrs > 0) recentStandbyW = rStWh / rStHrs;
     }
 
-    const avgStandbyW = recentStandbyW > 0 ? recentStandbyW : (globStandbyHours > 0 ? globStandbyWh / globStandbyHours : 145);
+    let avgStandbyW = recentStandbyW > 0 ? recentStandbyW : (globStandbyHours > 0 ? globStandbyWh / globStandbyHours : DEFAULT_STANDBY_W);
+    // Sanity guard: standby musí být konečný a nezáporný, jinak výchozí hodnota
+    if (!Number.isFinite(avgStandbyW) || avgStandbyW < 0) avgStandbyW = DEFAULT_STANDBY_W;
 
     const gainW_zima = (memCache.physics && memCache.physics.dynamicGainW_zima !== undefined) ? memCache.physics.dynamicGainW_zima : (config.internalGainW || 0);
     const gainW_prechod = (memCache.physics && memCache.physics.dynamicGainW_prechod !== undefined) ? memCache.physics.dynamicGainW_prechod : (config.internalGainW || 0);
@@ -1256,7 +1272,9 @@ if (type === 'GENERATE_EXPORT') {
     const wm2_HP = loss_HP / area;
 
     const bivalence = calculateExactBivalence(houseK_Total, memCache.maxTcCurve, config.targetIndoorTemp, gainW_zima);
-    const overallEfficiency = globHdd > 0 ? (globHeatWh / 1000) / globHdd : 0;
+    let overallEfficiency = globHdd > 0 ? (globHeatWh / 1000) / globHdd : 0;
+    // Sanity guard: měrná spotřeba kWh/HDD musí být konečná a nezáporná, jinak výchozí 0
+    if (!Number.isFinite(overallEfficiency) || overallEfficiency < 0) overallEfficiency = 0;
 
     let days = (maxTs - minTs) / 86400; if (days < 1) days = 1;
     const avgTuvKwh = (globTuvWh / 1000) / days;
@@ -1266,8 +1284,9 @@ if (type === 'GENERATE_EXPORT') {
 
     let totalRunTimeHours = 0;
     Object.values(sStats).forEach(b => { totalRunTimeHours += (b.runTimeHours || 0); });
-    let avgThermalPowerW = totalRunTimeHours > 0 ? (globHeatTpWh / totalRunTimeHours) : 2400;
-    if (avgThermalPowerW < 1800) avgThermalPowerW = 2400;
+    let avgThermalPowerW = totalRunTimeHours > 0 ? (globHeatTpWh / totalRunTimeHours) : DEFAULT_THERMAL_POWER_W;
+    // Sanity guard: tepelný výkon musí být konečný a nad minimem, jinak výchozí hodnota
+    if (!Number.isFinite(avgThermalPowerW) || avgThermalPowerW < MIN_THERMAL_POWER_W) avgThermalPowerW = DEFAULT_THERMAL_POWER_W;
 
     let yearlyHeatWhEl = 0, yearlyHeatWhThermal = 0;
     let yearlyTuvWhEl = 0, yearlyTuvWhThermal = 0;
@@ -1290,7 +1309,7 @@ if (type === 'GENERATE_EXPORT') {
             const usedGain = (tOut < 3) ? gainW_zima : gainW_prechod;
             
             let thermalReq = Math.max(0, (usedK * mDiff) - usedGain) * 24 * daysInMonth;
-            const currentCop = memCache.dynamicMonthlyCop[index] || 4.0;
+            const currentCop = memCache.dynamicMonthlyCop[index] || FALLBACK_MONTHLY_COP;
             yearlyHeatWhEl += (thermalReq / currentCop);
             yearlyHeatWhThermal += thermalReq;
             estRunHours += (thermalReq / avgThermalPowerW); 
@@ -1304,7 +1323,9 @@ if (type === 'GENERATE_EXPORT') {
     const estTuvKwh = yearlyTuvWhEl / 1000;
     const totalEstElKwh = (yearlyHeatWhEl / 1000) + estTuvKwh + (yearlyStandbyWhEl / 1000);
     const totalEstThermalKwh = (yearlyHeatWhThermal / 1000) + (yearlyTuvWhThermal / 1000);
-    const estScop = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
+    let estScop = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
+    // Sanity guard: SCOP musí být konečný a nezáporný, jinak výchozí 0
+    if (!Number.isFinite(estScop) || estScop < 0) estScop = 0;
 
     let remainingHddRatio = modelYearHdd > 0 ? Math.max(0, 1 - ((globHdd || 0) / modelYearHdd)) : 0;
     let remainingDaysRatio = Math.max(0, 1 - (days / 365));
@@ -2684,6 +2705,8 @@ function getDynamicTuvLimit(temp, config) {
 if (temp == null) temp = 0;
 if (temp <= config.designTemp) return config.tuv.dynMax;
 if (temp >= 5) return config.tuv.dynMin;
+// Ochrana proti dělení nulou: pokud designTemp === 5, vrať krajní hodnotu
+if (5 - config.designTemp === 0) return config.tuv.dynMax;
 return config.tuv.dynMax - ((temp - config.designTemp) * ((config.tuv.dynMax - config.tuv.dynMin) / (5 - config.designTemp)));
 }
 
@@ -3002,8 +3025,10 @@ if (run.duration < config.limits.minRun) {
     if (isPrecededByTuv || isFollowedByTuv) return false;
     
     // Kontrola zda po krátkém cyklu nenásleduje odmraz (pak nejde o rizikový start)
+    // Skenujeme až OD bodu za koncem běhu (run.end + 1) — run.end je poslední bod
+    // samotného běhu, nepatří do "následujícího" úseku a způsoboval off-by-one.
     let hasDefrostNext = false;
-    for (let k = run.end; k <= Math.min(data.length-1, run.end + 10); k++) {
+    for (let k = run.end + 1; k <= Math.min(data.length-1, run.end + 10); k++) {
         if (data[k].p_max > config.limits.defrostSpike) hasDefrostNext = true;
     }
     if (hasDefrostNext) return false;
@@ -3110,7 +3135,9 @@ const spfAll = (() => {
             elSum += d.heatWhClean   > 0 ? d.heatWhClean   : d.heatWh;
         }
     });
-    return elSum > 0 ? tpSum / elSum : 0;
+    const spf = elSum > 0 ? tpSum / elSum : 0;
+    // Sanity guard: měřený SPF musí být konečný a nezáporný, jinak výchozí 0
+    return (Number.isFinite(spf) && spf >= 0) ? spf : 0;
 })();
 
 return {
@@ -3128,6 +3155,12 @@ return {
 
 function calculateFinanceMetrics(seasonalStats, dailyStats, dynamicMonthlyCop, config, physics) {
 if (!seasonalStats) return null;
+
+// Pojmenované výchozí konstanty (fallbacky) — hodnoty zachovány beze změny
+const FIN_DEFAULT_STANDBY_W = 145;        // výchozí klidový příkon [W], když nejsou data o standby
+const FIN_DEFAULT_THERMAL_POWER_W = 2400; // výchozí tepelný výkon TČ [W] pro odhad doby chodu
+const FIN_MIN_THERMAL_POWER_W = 1800;     // minimální věrohodný tepelný výkon [W] — pod ním fallback
+const FIN_FALLBACK_MONTHLY_COP = 4.0;     // výchozí měsíční COP, když chybí v dynamicMonthlyCop
 
 const gainW_zima = physics && physics.dynamicGainW_zima !== undefined ? physics.dynamicGainW_zima : (config.internalGainW || 0);
 const gainW_prechod = physics && physics.dynamicGainW_prechod !== undefined ? physics.dynamicGainW_prechod : (config.internalGainW || 0);
@@ -3153,8 +3186,10 @@ const processSeason = (s) => {
         if (rStHrs > 0) recentStandbyW = rStWh / rStHrs;
     }
     
-    let seasonAvgStandbyW = s.standbyHours > 0 ? s.standbyWh / s.standbyHours : 145;
+    let seasonAvgStandbyW = s.standbyHours > 0 ? s.standbyWh / s.standbyHours : FIN_DEFAULT_STANDBY_W;
     let avgStandbyW = recentStandbyW > 0 ? recentStandbyW : seasonAvgStandbyW;
+    // Sanity guard: standby musí být konečný a nezáporný, jinak výchozí hodnota
+    if (!Number.isFinite(avgStandbyW) || avgStandbyW < 0) avgStandbyW = FIN_DEFAULT_STANDBY_W;
     
     let avgTuvThermalWh = (s.tuvTpWh || 0) / days;
     
@@ -3166,8 +3201,9 @@ const processSeason = (s) => {
     let estRunHours = 0;
     let modelYearHdd = 0;
 
-    let avgThermalPowerW = (s.runTimeHours && s.runTimeHours > 0) ? (s.heatTpWh / s.runTimeHours) : 2400;
-    if (avgThermalPowerW < 1800) avgThermalPowerW = 2400;
+    let avgThermalPowerW = (s.runTimeHours && s.runTimeHours > 0) ? (s.heatTpWh / s.runTimeHours) : FIN_DEFAULT_THERMAL_POWER_W;
+    // Sanity guard: tepelný výkon musí být konečný a nad minimem, jinak výchozí hodnota
+    if (!Number.isFinite(avgThermalPowerW) || avgThermalPowerW < FIN_MIN_THERMAL_POWER_W) avgThermalPowerW = FIN_DEFAULT_THERMAL_POWER_W;
 
     (config.evanTemps || []).forEach((tOut, index) => {
         const daysInMonth = config.estimations.monthDays;
@@ -3185,7 +3221,7 @@ const processSeason = (s) => {
             const usedGain = (tOut < 3) ? gainW_zima : gainW_prechod;
             
             let thermalReq = Math.max(0, (usedK * mDiff) - usedGain) * 24 * daysInMonth;
-            const currentCop = (dynamicMonthlyCop && dynamicMonthlyCop[index]) ? dynamicMonthlyCop[index] : 4.0;
+            const currentCop = (dynamicMonthlyCop && dynamicMonthlyCop[index]) ? dynamicMonthlyCop[index] : FIN_FALLBACK_MONTHLY_COP;
             // Korekce Jensenovy nerovnosti: COP(T) je konkávní → COP(avg T) > avg COP(T)
             // Pro měsíční průměrné teploty SCOP je nadhodnocen o ~5-9%.
             // Korekční faktor závisí na teplotní variabilitě (σ) a zakřivení COP(T).
@@ -3207,8 +3243,11 @@ const processSeason = (s) => {
     const estTuvKwh = yearlyTuvWhEl / 1000;
     const totalEstElKwh = (yearlyHeatWhEl / 1000) + estTuvKwh + (yearlyStandbyWhEl / 1000);
     const totalEstThermalKwh = (yearlyHeatWhThermal / 1000) + (yearlyTuvWhThermal / 1000);
-    const finalSCOP = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
-    const finalScopHeat = yearlyHeatWhEl > 0 ? yearlyHeatWhThermal / yearlyHeatWhEl : 0; 
+    let finalSCOP = totalEstElKwh > 0 ? totalEstThermalKwh / totalEstElKwh : 0;
+    let finalScopHeat = yearlyHeatWhEl > 0 ? yearlyHeatWhThermal / yearlyHeatWhEl : 0;
+    // Sanity guard: SCOP / SCOP topení musí být konečné a nezáporné, jinak výchozí 0
+    if (!Number.isFinite(finalSCOP) || finalSCOP < 0) finalSCOP = 0;
+    if (!Number.isFinite(finalScopHeat) || finalScopHeat < 0) finalScopHeat = 0;
 
     let remainingHddRatio = modelYearHdd > 0 ? Math.max(0, 1 - ((s.hdd || 0) / modelYearHdd)) : 0;
     let remainingDaysRatio = Math.max(0, 1 - (days / 365));

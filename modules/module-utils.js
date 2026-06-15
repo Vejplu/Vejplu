@@ -252,4 +252,72 @@ App.setLoading = function(isLoading, text = "Zpracovávám data...") {
     else overlay.classList.remove('visible');
 };
 
+// ─── 5. NUMERICKÁ VALIDACE A OŘEZ (čisté funkce) ─────────────────────────────
+// Pomocné funkce pro bezpečné čtení a omezení číselných vstupů.
+// Použitelné mj. v App.updateConfig() pro odolnost proti prázdným/NaN hodnotám.
+
+// Bezpečně převede hodnotu na číslo. Při prázdném/NaN/nečíselném vstupu vrátí fallback.
+// Pozn.: prázdný string i null/undefined jsou považovány za neplatné (vrací fallback),
+// na rozdíl od Number(''), které vrací 0.
+function safeNum(value, fallback = 0) {
+    if (value === null || value === undefined) return fallback;
+    if (typeof value === 'string' && value.trim() === '') return fallback;
+    const n = typeof value === 'number' ? value : parseFloat(value);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+// Ořeže číslo do rozsahu [min, max]. Neplatný vstup → fallback (a ten se rovněž ořeže).
+// Pokud je fallback mimo rozsah, je rovněž přitažen do [min, max], aby výstup byl vždy platný.
+function clampNumber(value, min, max, fallback = 0) {
+    let n = safeNum(value, NaN);
+    if (!Number.isFinite(n)) n = fallback;
+    // Ochrana proti prohozeným mezím
+    if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
+        const tmp = min; min = max; max = tmp;
+    }
+    if (Number.isFinite(min) && n < min) n = min;
+    if (Number.isFinite(max) && n > max) n = max;
+    return n;
+}
+
+// ─── 6. CENTRALIZOVANÉ ČESKÉ FORMÁTOVÁNÍ (Intl cs-CZ) ────────────────────────
+// Kanonické formátovací helpery pro budoucí použití. Všechny jsou null-safe:
+// pro null/undefined/NaN vrací '-'. Existující formátování v kódu nenahrazují.
+
+// Cache instancí Intl.NumberFormat (vytváření je relativně drahé).
+const _csNumFmtCache = {};
+function _csNumberFormat(decimals) {
+    const key = String(decimals);
+    if (!_csNumFmtCache[key]) {
+        _csNumFmtCache[key] = new Intl.NumberFormat('cs-CZ', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+    }
+    return _csNumFmtCache[key];
+}
+
+// Naformátuje číslo dle cs-CZ (desetinná čárka, mezera jako oddělovač tisíců).
+function formatNumber(n, decimals = 0) {
+    const v = safeNum(n, NaN);
+    if (!Number.isFinite(v)) return '-';
+    try {
+        return _csNumberFormat(decimals).format(v);
+    } catch (e) {
+        return v.toFixed(decimals);
+    }
+}
+
+// Naformátuje částku v Kč (0 desetinných míst, s příponou „ Kč").
+function formatCurrency(n) {
+    const s = formatNumber(n, 0);
+    return s === '-' ? '-' : s + ' Kč';
+}
+
+// Naformátuje procenta (1 desetinné místo, s příponou „ %"). Vstup je hodnota v %, ne podíl.
+function formatPercent(n, decimals = 1) {
+    const s = formatNumber(n, decimals);
+    return s === '-' ? '-' : s + ' %';
+}
+
 

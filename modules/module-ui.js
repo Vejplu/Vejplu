@@ -1387,11 +1387,17 @@ App.customHpEdited = function () {
 App.toggleMode = function(cb) {
     currentAppMode = cb.checked ? 'user' : 'analyst';
     document.body.className = 'mode-' + currentAppMode;
-    
+
+    // Zapamatuj zvolený režim (#69)
+    try { localStorage.setItem('tcAppMode', currentAppMode); } catch (e) {}
+
+    // Skryj/zobraz technické záložky podle režimu (#67)
+    App.applyModeNav();
+
     if (currentStats) {
         App.emit('updateStats', currentStats);
     }
-    
+
     setTimeout(() => {
         if (currentView === 'line' || currentView === 'bar' || currentView === 'thermal') {
             if (lastWindowData && lastWindowData.length > 0) {
@@ -1399,6 +1405,20 @@ App.toggleMode = function(cb) {
             }
         }
     }, 50);
+};
+
+// Skrytí technických záložek (Termo, volitelně Grafy) v uživatelském režimu (#67).
+// Nemaže z DOM — pouze přepíná třídu .nav-hidden-user.
+App.applyModeNav = function() {
+    const navItems = document.querySelectorAll('.bottom-nav .nav-item');
+    navItems.forEach(item => {
+        const oc = item.getAttribute('onclick') || '';
+        // V uživatelském režimu skryj "Termo" (a "Grafy")
+        const isTechnical = oc.includes("'thermo'") || oc.includes("'charts'");
+        if (isTechnical) {
+            item.classList.toggle('nav-hidden-user', currentAppMode === 'user');
+        }
+    });
 };
 
 App.updateSimulators = function() {
@@ -1481,9 +1501,25 @@ App.generateInsights = function() {
 
     if (window.currentNoobScore && window.currentNoobScore.story) {
         box.innerHTML = `<div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; border-left: 4px solid var(--accent); font-size: 0.8rem;">${window.currentNoobScore.story}</div>`;
+        // Akční výzva (#83–84): odkaz do simulátorů úspor — jen pokud máme obsah
+        const cta = document.createElement('button');
+        cta.className = 'insights-cta';
+        cta.type = 'button';
+        cta.innerText = 'Vyzkoušet úspory →';
+        cta.setAttribute('aria-label', 'Přejít do simulátorů úspor');
+        cta.onclick = () => { try { App.switchTab('simulators'); } catch (e) {} };
+        box.appendChild(cta);
     } else {
         box.innerHTML = `<i>Čekám na data pro vygenerování postřehů...</i>`;
     }
+};
+
+// Krátká česká vysvětlení jednotlivých skóre koleček (tap-to-explain #74–76)
+App.scoreExplains = {
+    userScoreEcon:   'Účinnost: jak hospodárně TČ vyrábí teplo (poměr tepla k odebrané elektřině). Vyšší = levnější provoz.',
+    userScoreHealth: 'Zdraví: jak šetrně kompresor pracuje — málo zbytečných startů a defrostů znamená delší životnost.',
+    userScoreSmooth: 'Plynulost: jak dlouhé a klidné jsou topné cykly. Plynulý chod chrání kompresor a šetří energii.',
+    userScoreLoad:   'Izolace: jak dobře dům drží teplo. Lepší obálka budovy znamená menší tepelné ztráty a nižší účet.'
 };
 
 App.updateNoobScores = function() {
@@ -1495,17 +1531,53 @@ App.updateNoobScores = function() {
     let circleSmooth = document.getElementById('userScoreSmooth');
     let circleLoad  = document.getElementById('userScoreLoad');
 
+    // Jednoslovný verdikt pod kolečkem podle hodnoty
+    const verdictFor = (val) => {
+        if (val >= 80) return { txt: 'Výborné', col: 'var(--success)' };
+        if (val >= 50) return { txt: 'Dobré',   col: 'var(--warning)' };
+        return { txt: 'Pozor', col: 'var(--danger)' };
+    };
+
     const applyColor = (el, val) => {
         if (!el) return;
         let col = 'var(--danger)';
         if (val >= 80) col = 'var(--success)';
         else if (val >= 55) col = 'var(--accent)';
         else if (val >= 35) col = 'var(--warning)';
-        
+
         el.innerText = Math.round(val) + '%';
         el.style.borderColor = col;
         el.style.color = col;
         el.style.boxShadow = `inset 0 0 15px ${col}80`;
+
+        // Verdikt + tap-to-explain: kolečko je klikací a má pod sebou slovní verdikt
+        const v = verdictFor(val);
+        const parent = el.parentElement;
+        if (parent) {
+            let vEl = parent.querySelector('.score-verdict');
+            if (!vEl) {
+                vEl = document.createElement('div');
+                vEl.className = 'score-verdict';
+                // Vlož verdikt hned za kolečko (před stávající popisek .score-lbl)
+                if (el.nextSibling) parent.insertBefore(vEl, el.nextSibling);
+                else parent.appendChild(vEl);
+            }
+            vEl.innerText = v.txt;
+            vEl.style.color = v.col;
+        }
+
+        // Tap-to-explain pouze jednou (idempotentní)
+        if (!el.dataset.explainBound) {
+            el.dataset.explainBound = '1';
+            el.classList.add('score-clickable');
+            el.style.cursor = 'pointer';
+            el.setAttribute('role', 'button');
+            el.setAttribute('tabindex', '0');
+            el.addEventListener('click', () => {
+                const msg = App.scoreExplains[el.id];
+                if (msg && typeof App.showError === 'function') App.showError(msg);
+            });
+        }
     };
 
     applyColor(circleEcon, sc.efficiency);
@@ -1584,7 +1656,14 @@ App.updateLifespan = function() {
             detail = `Starty převyšují motohodiny o ${overPct} %. Nutná kontrola: malý zásobník, špatná hydraulika nebo příliš citlivý termostat výrazně zkracují životnost.`;
         }
 
+        // Srozumitelný verdikt jednou větou (#98–99)
+        let verdict, vCol;
+        if (ratio >= 1.2)        { verdict = '✔️ TČ je v kondici'; vCol = 'var(--success)'; }
+        else if (ratio >= 0.95)  { verdict = '⚠️ Sledujte cyklování'; vCol = 'var(--warning)'; }
+        else                     { verdict = '❗ Kompresor se opotřebovává rychleji'; vCol = 'var(--danger)'; }
+
         analysisEl.innerHTML =
+            `<div class="wear-verdict" style="color:${vCol};">${verdict}</div>` +
             `<span style="font-weight:800; color:${ratio >= 1.2 ? 'var(--success)' : ratio >= 0.95 ? 'var(--warning)' : 'var(--danger)'};">${ico} ${qual}</span>` +
             ` — ${hlavni}<br><span style="color:var(--text-dim);">${detail}</span>`;
     } else if (analysisEl) {
@@ -1607,8 +1686,126 @@ App.updateLifespan = function() {
     }
 };
 
+// ─── 8b. UX VYLEPŠENÍ: STYLY, PŘÍSTUPNOST, PAMĚŤ REŽIMU ─────────────────────
+
+// Jednorázová injektáž CSS tříd, které UI logika používá (kolečka, verdikty,
+// akční výzva v postřezích a skrytí technických záložek v uživatelském režimu).
+// CSS lze přidat jen za běhu, proto vytvoříme <style> a vložíme do <head>.
+App.injectUxStyles = function() {
+    if (document.getElementById('uxStylesInjected')) return;
+    const style = document.createElement('style');
+    style.id = 'uxStylesInjected';
+    style.textContent = `
+        /* Skrytí technické záložky (Termo/Grafy) v uživatelském režimu (#67) */
+        .bottom-nav .nav-item.nav-hidden-user { display: none !important; }
+
+        /* Slovní verdikt pod skóre kolečkem (#74–76) */
+        .score-verdict {
+            font-size: 0.62rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-top: 3px;
+            text-align: center;
+        }
+        /* Klikací kolečko skóre (tap-to-explain #74–76) */
+        .score-clickable { transition: transform 0.15s ease; }
+        .score-clickable:hover { transform: scale(1.04); }
+        .score-clickable:active { transform: scale(0.96); }
+        .score-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+        /* Akční výzva v boxu postřehů — odkaz do simulátorů úspor (#83–84) */
+        .insights-cta {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #0c0f17;
+            font-size: 0.78rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: filter 0.2s ease, transform 0.15s ease;
+        }
+        .insights-cta:hover { filter: brightness(1.1); }
+        .insights-cta:active { transform: scale(0.97); }
+        .insights-cta:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+        /* Srozumitelný verdikt opotřebení kompresoru (#98–99) */
+        .wear-verdict {
+            font-size: 0.85rem;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+    `;
+    document.head.appendChild(style);
+};
+
+// Obnovení zapamatovaného režimu z localStorage při startu (#69) a srozumitelný
+// popisek přepínače "Jednoduchý / Expertní" (#68).
+App.restoreAppMode = function() {
+    let saved = null;
+    try { saved = localStorage.getItem('tcAppMode'); } catch (e) {}
+    if (saved === 'user' || saved === 'analyst') {
+        currentAppMode = saved;
+    }
+    document.body.className = 'mode-' + currentAppMode;
+
+    // Synchronizace přepínače: zaškrtnuto = uživatelský (jednoduchý) režim
+    const cb = document.getElementById('mainModeToggle');
+    if (cb) cb.checked = (currentAppMode === 'user');
+
+    // Jasný popisek přepínače (#68) — pokud existuje sousední text, přepíšeme jej
+    const toggleLabel = cb ? cb.closest('label') : null;
+    const labelText = toggleLabel && toggleLabel.previousElementSibling
+        ? toggleLabel.previousElementSibling
+        : null;
+    if (labelText) labelText.innerText = 'Jednoduchý / Expertní:';
+    const switchEl = cb ? cb.closest('.switch') : null;
+    if (switchEl) switchEl.setAttribute('title', 'Přepnout režim: Jednoduchý / Expertní');
+
+    App.applyModeNav();
+};
+
+// Přístupnost: aria-labely na tlačítka jen s emoji + nav položky (#132).
+App.initAriaLabels = function() {
+    const setAria = (id, label) => {
+        const el = document.getElementById(id);
+        if (el && !el.getAttribute('aria-label')) el.setAttribute('aria-label', label);
+    };
+    setAria('floatingExport', 'Export dat');
+    setAria('floatingSettings', 'Nastavení');
+
+    // Spodní navigace — přečteme český text z položky a doplníme aria-label
+    document.querySelectorAll('.bottom-nav .nav-item').forEach(item => {
+        if (item.getAttribute('aria-label')) return;
+        const span = item.querySelector('span');
+        const txt = span ? span.innerText.trim() : '';
+        if (txt) item.setAttribute('aria-label', 'Záložka ' + txt);
+        item.setAttribute('role', 'button');
+    });
+};
+
+// Escape zavře jakékoliv otevřené modální okno (#133) — používá stávající vzor
+// (odebrání třídy .open). Jediný globální listener.
+App.initEscModalClose = function() {
+    if (App._escBound) return;
+    App._escBound = true;
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape' && e.key !== 'Esc') return;
+        const open = document.querySelectorAll('.modal-overlay.open');
+        if (open.length === 0) return;
+        open.forEach(m => m.classList.remove('open'));
+    });
+};
+
 // ─── 9. EVENT LISTENERY A BOOTSTRAP ────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    // UX vylepšení: styly, přístupnost, paměť režimu (#67–69, #132–133)
+    try { App.injectUxStyles(); } catch (e) {}
+    try { App.initAriaLabels(); } catch (e) {}
+    try { App.initEscModalClose(); } catch (e) {}
     let tSlider = document.getElementById('simTempSlider');
     if(tSlider) tSlider.addEventListener('input', App.updateSimulators);
     
@@ -1643,8 +1840,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof App.initCharts === 'function') App.initCharts('line');
     if (typeof App.smartNav === 'function') App.smartNav(0);
 
-    // Nastavení výchozího režimu aplikace
-    document.body.className = 'mode-' + currentAppMode;
+    // Nastavení režimu aplikace — obnoví zapamatovaný režim (#69), popisek (#68)
+    // a skrytí technických záložek (#67).
+    try { App.restoreAppMode(); } catch (e) { document.body.className = 'mode-' + currentAppMode; }
 
     const cb = document.querySelector('.chart-box');
     const holder = document.getElementById('canvasHolderMain');

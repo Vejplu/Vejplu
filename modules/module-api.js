@@ -4,11 +4,89 @@
 workerBlob = new Blob([document.getElementById('workerScript').textContent], { type: "text/javascript" });
 worker = new Worker(window.URL.createObjectURL(workerBlob));
 
+// ─── 1a. WATCHDOG STAV ──────────────────────────────────────────────────────
+// Hlídací časovač pro „zaseknuté" joby. Klíčujeme podle jobId, aby se
+// překrývající se joby nerušily navzájem (např. prefetch vs. hlavní výpočet).
+window.__tcWatchdogs = window.__tcWatchdogs || {};
+const WATCHDOG_TIMEOUT_MS = 30000; // ~30 s na dokončení těžkého výpočtu
+
+// Spustí hlídací časovač pro daný jobId. Pokud nedorazí terminální zpráva
+// (RESULT/NO_DATA/ERROR) pro tento job včas, odblokujeme UI a upozorníme.
+function startWatchdog(jobId) {
+    try {
+        clearWatchdog(jobId);
+        window.__tcWatchdogs[jobId] = setTimeout(function () {
+            // Reagujeme jen pokud je tento job stále aktuální
+            if (jobId === currentJobId) {
+                if (typeof App !== 'undefined' && App) {
+                    if (typeof App.setLoading === 'function') App.setLoading(false);
+                    if (typeof App.showError === 'function') App.showError('Analýza trvá neobvykle dlouho…');
+                    if (typeof App.handleNoData === 'function') App.handleNoData();
+                }
+            }
+            delete window.__tcWatchdogs[jobId];
+        }, WATCHDOG_TIMEOUT_MS);
+    } catch (e) {
+        console.error('startWatchdog: nepodařilo se spustit hlídací časovač', e);
+    }
+}
+
+// Zruší hlídací časovač pro daný jobId (po doručení terminální zprávy).
+function clearWatchdog(jobId) {
+    try {
+        if (window.__tcWatchdogs && window.__tcWatchdogs[jobId] !== undefined) {
+            clearTimeout(window.__tcWatchdogs[jobId]);
+            delete window.__tcWatchdogs[jobId];
+        }
+    } catch (e) {
+        console.error('clearWatchdog: nepodařilo se zrušit hlídací časovač', e);
+    }
+}
+
+// ─── 1c. GLOBÁLNÍ ODCHYT NEOŠETŘENÝCH CHYB ──────────────────────────────────
+// Surfacujeme neodchycené výjimky a odmítnuté promisy přes App.showError,
+// aby UI nezůstalo viset bez zpětné vazby. Chráníme se proti smyčce vlastní chyby.
+window.__tcInGlobalErrorHandler = false;
+window.addEventListener('error', function (ev) {
+    if (window.__tcInGlobalErrorHandler) return;
+    window.__tcInGlobalErrorHandler = true;
+    try {
+        const m = (ev && ev.message) || (ev && ev.error && ev.error.message) || 'neznámá chyba';
+        console.error('Neodchycená chyba:', (ev && ev.error) || m);
+        if (typeof App !== 'undefined' && App && typeof App.showError === 'function') {
+            App.showError('Došlo k neočekávané chybě: ' + m);
+        }
+    } catch (e) {
+        console.error('window.onerror handler selhal', e);
+    } finally {
+        window.__tcInGlobalErrorHandler = false;
+    }
+});
+window.addEventListener('unhandledrejection', function (ev) {
+    if (window.__tcInGlobalErrorHandler) return;
+    window.__tcInGlobalErrorHandler = true;
+    try {
+        const reason = ev && ev.reason;
+        const m = (reason && reason.message) || (typeof reason === 'string' ? reason : 'neznámá chyba');
+        console.error('Neošetřený odmítnutý promise:', reason);
+        if (typeof App !== 'undefined' && App && typeof App.showError === 'function') {
+            App.showError('Došlo k neočekávané chybě: ' + m);
+        }
+    } catch (e) {
+        console.error('window.onunhandledrejection handler selhal', e);
+    } finally {
+        window.__tcInGlobalErrorHandler = false;
+    }
+});
+
 // ─── 1b. NEODCHYCENÉ CHYBY WORKERU ──────────────────────────────────────────
 // Worker hlásí očekávané chyby přes postMessage({type:'ERROR'}), ale
 // neodchycená výjimka (mimo try/catch nebo odmítnutý promise v async onmessage)
 // by jinak nechala UI viset na loading overlayi bez zpětné vazby.
 worker.onerror = function (err) {
+    // Neodchycená chyba workeru je terminální pro běžící job — zrušíme jeho
+    // hlídací časovač, ať se za ~30 s zbytečně nespustí znovu a nepřepíše UI.
+    try { clearWatchdog(currentJobId); } catch (e) { console.error('worker.onerror: clearWatchdog selhal', e); }
     if (typeof App !== 'undefined' && App) {
         if (typeof App.setLoading === 'function') App.setLoading(false);
         if (typeof App.showError === 'function') App.showError('Chyba výpočetního jádra: ' + ((err && err.message) || 'neznámá chyba'));
@@ -18,8 +96,12 @@ worker.onerror = function (err) {
 
 // ─── 2. PŘÍJEM ZPRÁV Z WORKERU (onmessage) ──────────────────────────────────
 worker.onmessage = function (e) {
-    const msg = e.data;
-    if (!msg) return;
+    const msg = e ? e.data : null;
+    // Validace tvaru zprávy: musí to být objekt s textovým polem `type`.
+    if (!msg || typeof msg !== 'object' || typeof msg.type !== 'string') {
+        console.error('worker.onmessage: ignoruji neplatnou zprávu z workeru', msg);
+        return;
+    }
 
     // --- Zpracování výsledku exportu z Workeru ---
     if (msg.type === 'EXPORT_RESULT') {
@@ -49,6 +131,7 @@ worker.onmessage = function (e) {
  
     // --- Chyba ---
     if (msg.type === 'ERROR') {
+        clearWatchdog(msg.jobId); // terminální zpráva — hlídací časovač už není třeba
         App.setLoading(false);
         if (typeof App.showError === 'function') App.showError("Chyba analýzy: " + (msg.error || "Neznámá chyba"));
         
@@ -69,6 +152,7 @@ worker.onmessage = function (e) {
  
     // --- HLAVNÍ VÝSLEDEK (RESULT) ---
     if (msg.type === 'RESULT') {
+        clearWatchdog(msg.jobId); // terminální zpráva — hlídací časovač už není třeba
         App.setLoading(false);
         
         const noData = document.getElementById('noDataMsg');
@@ -134,6 +218,7 @@ worker.onmessage = function (e) {
     }
  
     if (msg.type === 'NO_DATA') {
+        clearWatchdog(msg.jobId); // terminální zpráva — hlídací časovač už není třeba
         App.setLoading(false);
         if (statusEl) {
             statusEl.innerText = "Žádná data pro zvolené období";
@@ -152,6 +237,32 @@ App.handleFileUpload = async function (input) {
     const files = Array.from(input.files);
     const statusEl = document.getElementById('statusFreq');
     const textParts = [];
+
+    // ── Pojistka na velikost: u velmi velkých logů varujeme uživatele ──
+    try {
+        let totalSize = 0;
+        for (let i = 0; i < files.length; i++) {
+            totalSize += (files[i] && files[i].size) || 0;
+        }
+        const LIMIT_BYTES = 50 * 1024 * 1024; // 50 MB
+        if (totalSize > LIMIT_BYTES) {
+            const mb = (totalSize / (1024 * 1024)).toFixed(0);
+            const proceed = (typeof window.confirm === 'function')
+                ? window.confirm('Vybrané soubory jsou velmi velké (' + mb + ' MB). Zpracování může být pomalé nebo selhat. Pokračovat?')
+                : true;
+            if (!proceed) {
+                if (statusEl) {
+                    statusEl.innerText = "Načítání zrušeno";
+                    statusEl.style.borderLeftColor = "var(--warning)";
+                    statusEl.style.color = "var(--warning)";
+                }
+                input.value = ''; // Reset file inputu
+                return;
+            }
+        }
+    } catch (e) {
+        console.error('handleFileUpload: kontrola velikosti souborů selhala', e);
+    }
 
     try {
         // TVRDÝ RESET PAMĚTI
@@ -178,8 +289,9 @@ App.handleFileUpload = async function (input) {
         // Okamžité promazání UI
         if (typeof App.handleNoData === 'function') App.handleNoData();
         App.emit('updateStats', null);
-        try { App.updateFinanceView(); } catch(e){}
-        try { App.updateThermoTab(); } catch(e){}
+        // Pozn.: tyto pohledy nemusí být inicializované při prvním nahrání — chybu jen logujeme
+        try { App.updateFinanceView(); } catch(e){ console.error('handleFileUpload: updateFinanceView selhal', e); }
+        try { App.updateThermoTab(); } catch(e){ console.error('handleFileUpload: updateThermoTab selhal', e); }
         
         // Reset do výchozího stavu času, aby aplikace sama skočila na nová data
         currentSelectionMode = 'day';
@@ -209,7 +321,28 @@ App.handleFileUpload = async function (input) {
 
         // ULOŽENÍ DO PAMĚTI A ZAPOMENUTÍ TEXTAREA "A"
         App.uploadedFileText = textParts.join("\n");
-        
+
+        // ── Rychlá kontrola formátu: prázdný nebo zjevně neparsovatelný log ──
+        // Platný log z TČ je oddělený (např. ';' nebo ',') a má více řádků.
+        const _trimmed = (App.uploadedFileText || "").trim();
+        const _looksLikeLog = _trimmed.length > 5
+            && /[\r\n]/.test(_trimmed)
+            && /[;,\t]/.test(_trimmed);
+        if (!_looksLikeLog) {
+            console.error('handleFileUpload: nahraný soubor nevypadá jako platný log z TČ (délka=' + _trimmed.length + ')');
+            App.uploadedFileText = "";
+            if (statusEl) {
+                statusEl.innerText = "Neplatný formát logu";
+                statusEl.style.borderLeftColor = "var(--danger)";
+                statusEl.style.color = "var(--danger)";
+            }
+            if (typeof App.showError === 'function') App.showError('Soubor nevypadá jako platný log z TČ. Zkontrolujte, zda nahráváte správný exportní soubor.');
+            if (typeof App.handleNoData === 'function') App.handleNoData();
+            input.value = ''; // Reset file inputu
+            textParts.length = 0;
+            return;
+        }
+
         const dataInput = document.getElementById('dataInput');
         if (dataInput) {
             dataInput.value = "A"; // Natvrdo přepíšeme stará data ze zkratky
@@ -344,6 +477,9 @@ App.runPipeline = function () {
                 prefetchDates: prefetchDates
             });
             workerHasData = true;
+            // Spustíme hlídací časovač — pokud worker do ~30 s nepošle terminální
+            // zprávu pro tento job, odblokujeme UI a upozorníme uživatele.
+            startWatchdog(currentJobId);
         } catch (err) {
             App.setLoading(false);
             if (statusEl) {

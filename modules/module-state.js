@@ -733,17 +733,37 @@ function cloneConfig(obj) {
 }
  
 // 3. VÝCHOZÍ KONFIGURACE A LIMITY
+
+// ─── Pojmenované výchozí konstanty ───────────────────────────────────────────
+// Seskupení dříve roztroušených „magických" hodnot do pojmenovaných konstant.
+// Hodnoty se NEMĚNÍ — jde čistě o čitelnost a jediné místo úprav.
+const DEFAULT_MIN_TS         = 1704067200;  // Nejstarší akceptované UNIX ts (2024-01-01)
+const DEFAULT_FLOOR_AREA     = 100;         // Vytápěná plocha [m²]
+const DEFAULT_INDOOR_TEMP    = 22.5;        // Cílová vnitřní teplota [°C]
+const DEFAULT_DESIGN_TEMP    = -15;         // Výpočtová teplota zimy [°C]
+const DEFAULT_HEATING_THRESH = 10.0;        // Hranice topné sezóny [°C]
+const DEFAULT_INTERNAL_GAIN  = 550;         // Interní zisky [W]
+const DEFAULT_LOC_LAT        = 50.3840;     // Výchozí zeměpisná šířka
+const DEFAULT_LOC_LON        = 14.0289;     // Výchozí zeměpisná délka
+const DEFAULT_PRICE_KWH      = 4.80;        // Cena elektřiny [Kč/kWh]
+const DEFAULT_HP_PRESET      = "lg_9kw";    // Výchozí předvolba TČ
+
+// Verze schématu uložené konfigurace (localStorage). Zvyš při nekompatibilní změně struktury.
+const CONFIG_VERSION = 1;
+// Klíč v localStorage pro perzistovanou konfiguraci.
+const CONFIG_STORAGE_KEY = 'vejplu_config';
+
 const DEFAULT_CONFIG = {
-    minTs: 1704067200,
+    minTs: DEFAULT_MIN_TS,
  
     // 🌍 Lokalita a Dům
-    floorArea: 100,
-    targetIndoorTemp: 22.5,
-    designTemp: -15,       // Výpočtová teplota zimy pro ztrátu domu
-    heatingThreshold: 10.0,
-    internalGainW: 550,    // Interní zisky
-    locLat: 50.3840,
-    locLon: 14.0289,
+    floorArea: DEFAULT_FLOOR_AREA,
+    targetIndoorTemp: DEFAULT_INDOOR_TEMP,
+    designTemp: DEFAULT_DESIGN_TEMP,       // Výpočtová teplota zimy pro ztrátu domu
+    heatingThreshold: DEFAULT_HEATING_THRESH,
+    internalGainW: DEFAULT_INTERNAL_GAIN,    // Interní zisky
+    locLat: DEFAULT_LOC_LAT,
+    locLon: DEFAULT_LOC_LON,
     evanTemps: [-1.3, 0.1, 3.8, 8.7, 13.6, 17.0, 18.6, 18.0, 13.6, 8.4, 3.6, 0.2],
  
     // 📈 Topná křivka a LWT
@@ -794,7 +814,7 @@ const DEFAULT_CONFIG = {
     },
 
     // 💰 Ekonomika & Odhady
-    priceKwh: 4.80,
+    priceKwh: DEFAULT_PRICE_KWH,
     estimations: { 
         tuvLoss: 1.08,             // Ztráta zásobníku TUV 8% (reálně 5-15%, EN 16147)
         tuvCop: 2.8,
@@ -807,7 +827,7 @@ const DEFAULT_CONFIG = {
 
     // 💻 Systém a UI
     system: {
-        hpPreset: "lg_9kw",
+        hpPreset: DEFAULT_HP_PRESET,
         hpName: HP_PRESETS.lg_9kw.name,
         hpMatrix: HP_PRESETS.lg_9kw.matrix,
         trendDays: 7,                    // Počet dnů pro porovnávání trendů (Termo)
@@ -896,6 +916,93 @@ App.uploadedFileText = null; // Nahraný soubor přes tlačítko
 // Pomocná funkce pro bezpečné vyvolání události
 App.emit = function(eventName, detail = {}) {
     document.dispatchEvent(new CustomEvent(eventName, { detail }));
+};
+
+// ─── 6. PERZISTENCE KONFIGURACE (localStorage) S VERZOVÁNÍM ────────────────────
+// Ukládání/načítání CONFIG do localStorage se schématem verze (CONFIG_VERSION).
+// Návrh je defenzivní: nikdy nespadne na poškozeném JSON ani na cizích klíčích.
+
+// Bezpečné hluboké sloučení: do cíle (target) přenese pouze ty klíče ze source,
+// které v target již existují (tj. jsou součástí výchozího schématu). Tím se
+// ignorují neznámé/zastaralé klíče a typy se drží podle výchozí konfigurace.
+function _mergeKnownKeys(target, source) {
+    if (!source || typeof source !== 'object') return target;
+    for (const key of Object.keys(target)) {
+        if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const tv = target[key];
+        const sv = source[key];
+        if (sv === null || sv === undefined) continue;
+        if (Array.isArray(tv)) {
+            // Pole přebíráme jen pokud je uložená hodnota také pole.
+            if (Array.isArray(sv)) target[key] = sv.slice();
+        } else if (tv && typeof tv === 'object') {
+            // Vnořené objekty slučujeme rekurzivně (jen známé klíče).
+            if (sv && typeof sv === 'object' && !Array.isArray(sv)) {
+                _mergeKnownKeys(tv, sv);
+            }
+        } else {
+            // Primitiva přebíráme jen pokud sedí typ (ochrana proti poškození).
+            if (typeof sv === typeof tv) target[key] = sv;
+        }
+    }
+    return target;
+}
+
+// Uloží aktuální CONFIG do localStorage spolu s verzí schématu.
+// Vrací true při úspěchu, false při chybě (např. plné úložiště, soukromý režim).
+App.saveConfig = function () {
+    try {
+        const payload = {
+            version: CONFIG_VERSION,
+            config: CONFIG
+        };
+        localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(payload));
+        return true;
+    } catch (e) {
+        console.error('saveConfig: nepodařilo se uložit konfiguraci do localStorage', e);
+        return false;
+    }
+};
+
+// Načte konfiguraci z localStorage a bezpečně ji sloučí přes výchozí hodnoty.
+// Migrace: chybí-li verze nebo je starší než CONFIG_VERSION, uložené hodnoty se
+// pouze opatrně přelijí přes čerstvé DEFAULT_CONFIG (žádné pole se neztratí).
+// Při poškozeném/chybějícím JSON se tiše vrátí výchozí konfigurace (NIKDY nespadne).
+App.loadConfig = function () {
+    // Vždy začínáme z čisté kopie výchozí konfigurace.
+    const merged = cloneConfig(DEFAULT_CONFIG);
+
+    let raw = null;
+    try {
+        raw = localStorage.getItem(CONFIG_STORAGE_KEY);
+    } catch (e) {
+        console.error('loadConfig: localStorage není dostupné', e);
+        return merged;
+    }
+    if (!raw) return merged;
+
+    let parsed = null;
+    try {
+        parsed = JSON.parse(raw);
+    } catch (e) {
+        console.error('loadConfig: poškozený JSON v localStorage, používám výchozí konfiguraci', e);
+        return merged;
+    }
+    if (!parsed || typeof parsed !== 'object') return merged;
+
+    // Zpětná kompatibilita: starší formát mohl ukládat holý CONFIG bez obálky.
+    const storedVersion = typeof parsed.version === 'number' ? parsed.version : 0;
+    const storedConfig = (parsed.config && typeof parsed.config === 'object') ? parsed.config : parsed;
+
+    if (storedVersion > CONFIG_VERSION) {
+        // Novější schéma, než umíme — raději zůstaneme u výchozích hodnot.
+        console.error('loadConfig: uložená verze (' + storedVersion + ') je novější než ' + CONFIG_VERSION + ', používám výchozí konfiguraci');
+        return merged;
+    }
+
+    // Bezpečné sloučení uložených hodnot přes výchozí schéma (migrace).
+    _mergeKnownKeys(merged, storedConfig);
+    return merged;
 };
 
 

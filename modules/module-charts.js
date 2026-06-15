@@ -102,6 +102,8 @@ App.initCharts = function (type) {
             if (d.temp != null) {
                 if (d.temp <= c.tOutMin) lwtTarget = c.lwtMax.toFixed(1);
                 else if (d.temp >= c.tOutMax) lwtTarget = c.lwtMin.toFixed(1);
+                // Ochrana proti dělení nulou (tOutMax === tOutMin) — fallback na lwtMax
+                else if (c.tOutMax === c.tOutMin) lwtTarget = c.lwtMax.toFixed(1);
                 else lwtTarget = (c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (d.temp - c.tOutMin)).toFixed(1);
             }
 
@@ -113,23 +115,25 @@ App.initCharts = function (type) {
             if (hk > 0 && d.temp != null) {
                 let usedGain = (d.temp < 3) ? gains.zima : gains.prechod;
                 let dem = hk * (CONFIG.targetIndoorTemp - d.temp) - usedGain;
-                demandHtml = `<div class="ct-div"></div><div class="ct-item" style="color:#eab308">🏠 ≈ ${Math.max(0, Math.round(dem))} W</div>`;
+                // Ochrana proti NaN (např. chybějící targetIndoorTemp/usedGain)
+                let demTxt = Number.isFinite(dem) ? Math.max(0, Math.round(dem)) + ' W' : '-';
+                demandHtml = `<div class="ct-div"></div><div class="ct-item" style="color:#eab308">🏠 ≈ ${demTxt}</div>`;
             }
 
             tooltipEl.innerHTML = `
                 <div class="ct-row">
-                    <div class="ct-item" style="color:var(--accent)">⚡ ${d.p != null ? Math.round(d.p) : '-'} W</div>
+                    <div class="ct-item" style="color:var(--accent)">⚡ ${(d.p != null && Number.isFinite(d.p)) ? Math.round(d.p) : '-'} W</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--success)">🔥 ${d.tp != null ? Math.round(d.tp) : '-'} W</div>
+                    <div class="ct-item" style="color:var(--success)">🔥 ${(d.tp != null && Number.isFinite(d.tp)) ? Math.round(d.tp) : '-'} W</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--weather)">COP ${d.cop ? d.cop.toFixed(2) : '-'}</div>
+                    <div class="ct-item" style="color:var(--weather)">COP ${(d.cop != null && Number.isFinite(d.cop) && d.cop > 0) ? d.cop.toFixed(2) : '-'}</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--oil)">⚡️ ${d.v != null ? d.v.toFixed(1) : '-'} V</div>
+                    <div class="ct-item" style="color:var(--oil)">⚡️ ${(d.v != null && Number.isFinite(d.v)) ? d.v.toFixed(1) : '-'} V</div>
                 </div>
                 <div class="ct-row" style="margin-top: 4px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;">
                     <div class="ct-item">🕒 ${time}</div>
                     <div class="ct-div"></div>
-                    <div class="ct-item" style="color:var(--weather)">🌡️ ${d.temp != null ? d.temp.toFixed(1) : '-'} °C</div>
+                    <div class="ct-item" style="color:var(--weather)">🌡️ ${(d.temp != null && Number.isFinite(d.temp)) ? d.temp.toFixed(1) : '-'} °C</div>
                     <div class="ct-div"></div>
                     <div class="ct-item" style="color:#f87171">♨️ ${lwtTarget} °C</div>
                     ${demandHtml}
@@ -300,13 +304,13 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
             }
         }
 
-        if (!d || !d.length) { if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
-        
+        if (!d || !d.length) { if(typeof App.showEmptyState==='function') App.showEmptyState(); else if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
+
         const targetWidth = Math.max(d.length * (isMonthlyScale ? 80 : 40), cW);
         holderMain.style.width = targetWidth + 'px';
         if (holderVolt) holderVolt.style.width = targetWidth + 'px';
         
-        if (voltChart) { voltChart.data.labels = []; voltChart.update(); }
+        if (voltChart) { voltChart.data.labels = []; voltChart.update('none'); }
         myChart.data.labels = d.map(x => x.label);
         
         let datasets = [];
@@ -403,7 +407,7 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
         return targetWidth;
     }
 
-    if (!wData || !wData.length) { if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
+    if (!wData || !wData.length) { if(typeof App.showEmptyState==='function') App.showEmptyState(); else if(typeof App.handleNoData==='function') App.handleNoData(); return 0; }
 
     let z = zoomLevels[currentView] || 1.0;
     
@@ -529,6 +533,8 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
             if (d.temp == null) return { x: d.ts, y: null };
             if (d.temp <= c.tOutMin) return { x: d.ts, y: c.lwtMax };
             if (d.temp >= c.tOutMax) return { x: d.ts, y: c.lwtMin };
+            // Ochrana proti dělení nulou (tOutMax === tOutMin) — fallback na lwtMax
+            if (c.tOutMax === c.tOutMin) return { x: d.ts, y: c.lwtMax };
             return { x: d.ts, y: c.lwtMax + ((c.lwtMin - c.lwtMax) / (c.tOutMax - c.tOutMin)) * (d.temp - c.tOutMin) };
         }),
         borderColor: 'rgba(248, 113, 113, 0.7)',
@@ -647,6 +653,38 @@ App.renderCurvePage = function () {
 };
 
 
+// ─── 3. PŘÍVĚTIVĚJŠÍ STAV "ŽÁDNÁ DATA" ──────────────────────────────────────
+// Nastaví přátelštější text do prvku #noDataMsg (pokud existuje) a deleguje na
+// stávající App.handleNoData (vyčistí grafy). Bezpečné volat kdykoli.
+App.showEmptyState = function (hint) {
+    const msg = document.getElementById('noDataMsg');
+    if (msg) {
+        msg.innerHTML = hint || '📊 Žádná data k zobrazení.<br><span style="font-size:0.8em; font-weight:400; opacity:0.8;">Nahraj prosím log (CSV) pro vykreslení grafu.</span>';
+    }
+    if (typeof App.handleNoData === 'function') App.handleNoData();
+};
+
+
+// ─── 4. RESET ZOOMU / SCROLLU GRAFU ─────────────────────────────────────────
+// Vrátí horizontální scroll/zoom transformaci držáku grafu do výchozího stavu.
+// Bezpečné volat i když prvky/grafy neexistují.
+App.resetChartZoom = function () {
+    try {
+        const scroller = document.getElementById('scrollContainerMain');
+        if (scroller) scroller.scrollLeft = 0;
+
+        // Reset případné CSS transformace na držácích plátna
+        ['canvasHolderMain', 'canvasHolderVolt'].forEach(function (id) {
+            const el = document.getElementById(id);
+            if (el) el.style.transform = '';
+        });
+
+        // Reset úrovně zoomu pro aktuální pohled na výchozí hodnotu
+        if (typeof zoomLevels !== 'undefined' && typeof currentView !== 'undefined') {
+            zoomLevels[currentView] = (currentView === 'bar' ? 0.1 : 1.0);
+        }
+    } catch (e) { }
+};
 
 
 
