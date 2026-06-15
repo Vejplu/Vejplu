@@ -460,6 +460,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
 .help-text.visible { display: block; animation: fadeIn 0.2s; }
 
 
+
 </style>
 </head>
 
@@ -4460,6 +4461,7 @@ return { seasons, total };
 
 
 
+
 </script>
 
     <script id="module-state"   data-module="STATE">
@@ -5370,6 +5372,7 @@ App.emit = function(eventName, detail = {}) {
 
 
 
+
 </script>
     <script id="module-utils"   data-module="UTILS">
 
@@ -5625,6 +5628,7 @@ App.setLoading = function(isLoading, text = "Zpracovávám data...") {
     if (isLoading) overlay.classList.add('visible');
     else overlay.classList.remove('visible');
 };
+
 
 
 </script>
@@ -6028,6 +6032,7 @@ App.generateExport = function() {
         if (ta) ta.value = 'Chyba: Proces na pozadí (Worker) není dostupný.';
     }
 };
+
 
 
 
@@ -6686,8 +6691,8 @@ App.renderCurvePage = function () {
 
 
 
-</script>
 
+</script>
 <script id="module-ui"   data-module="UI">
 
 
@@ -8436,6 +8441,7 @@ document.addEventListener('renderCalendar', () => {
         try { App.renderCalendar(); } catch(e) {}
     }
 });
+
 
 
 
