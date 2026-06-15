@@ -14,13 +14,13 @@ Při vypisování kódu této aplikace se **vždy** řiď těmito pravidly:
    generuj striktně od `<html>` do `</html>` (v souboru jí předchází
    `<!DOCTYPE html>`).
 
-3. **Postupné generování** — u projektů s více částmi vypiš vždy jen jeden
-   kompletní modul (kostru, styl nebo konkrétní skript) a počkej na pokyn
-   před generováním další části.
+3. **Vše najednou jako soubory** — u projektů s více částmi NEVYPISUJ moduly
+   postupně jeden po druhém a nečekej na pokyn. Vlož všechny části najednou
+   jako samostatné soubory (kostru + každý modul zvlášť) a doruč je uživateli.
 
-4. **Absence obalovacích tagů** — při následném vypisování konkrétních modulů
-   nepiš obalovací HTML tagy (`<script>`, `<style>`). Vypisuj pouze samotný
-   vnitřní kód (čisté JS nebo CSS).
+4. **Absence obalovacích tagů** — u konkrétních modulů (souborů) nepiš
+   obalovací HTML tagy (`<script>`, `<style>`). Obsahem souboru je pouze
+   samotný vnitřní kód (čisté JS nebo CSS). Kostra zůstává s placeholdery.
 
 5. **Automatická analýza** — pokud je zaslán pouze kód bez dalšího dotazu,
    automaticky ho zanalyzuj a poskytni názor na jeho strukturu, fungování
