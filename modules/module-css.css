@@ -448,3 +448,116 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
 .help-text.visible { display: block; animation: fadeIn 0.2s; }
 
 
+/* ════════════════════════════════════════════════════════════════
+   ── Přístupnost a polish (a11y) ──
+   Doplňkové úpravy: dotykové cíle (#136), kontrast (#135),
+   omezený pohyb (#137) a viditelný fokus pro klávesnici.
+   Vše additivní — neměníme barevnou identitu ani velikosti písma.
+   ════════════════════════════════════════════════════════════════ */
+
+/* --- #136 DOTYKOVÉ CÍLE (~44px) ---
+   Pohodlná minimální velikost klepnutí pro interaktivní prvky.
+   Používáme min-height/min-width + inline-flex centrování, aby
+   se nerozbil kompaktní layout a zachovaly se velikosti písma. */
+.nav-btn-mini {
+    min-height: 44px;
+    min-width: 44px;
+}
+.view-btn {
+    min-height: 44px;
+}
+.cal-btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.modal-close {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.compact-btn {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.floating-settings,
+.floating-export {
+    min-height: 44px;
+    min-width: 44px;
+    height: auto;
+}
+.nav-item {
+    min-height: 44px;
+}
+
+/* --- #135 KONTRAST: silnější pomocná barva pro malé kritické popisky ---
+   --text-dim (rgba(238,241,247,0.58)) je pro drobné texty nízký.
+   Nabízíme silnější utilitu — bez globální změny tématu. */
+.text-dim-strong {
+    color: rgba(238, 241, 247, 0.82);
+}
+
+/* --- VIDITELNÝ FOKUS PRO KLÁVESNICI ---
+   Jasný obrys přes :focus-visible (akcent), aniž bychom rušili
+   stávající outline pravidla. Cílíme jen na klávesovou navigaci. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.nav-item:focus-visible,
+.nav-btn-mini:focus-visible,
+.view-btn:focus-visible,
+.cal-btn:focus-visible,
+.compact-btn:focus-visible,
+.modal-close:focus-visible,
+.floating-settings:focus-visible,
+.floating-export:focus-visible,
+.cal-day:focus-visible,
+.table-cell:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+/* Pro range vstupy fokus posílíme stínem (zachová běžný out:none v tracku) */
+input[type=range]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+}
+
+/* --- #137 OMEZENÝ POHYB (prefers-reduced-motion) ---
+   Rozšiřujeme stávající blok i na nepodstatné přechody a animace,
+   aby byla aplikace pohodlná pro uživatele citlivé na pohyb. */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+    }
+    /* Aurora bloby zcela bez pohybu */
+    .blob { animation: none !important; }
+    /* Žádné posuny při najetí myší / aktivaci */
+    .floating-settings:hover,
+    .floating-export:hover,
+    .nav-btn-mini:hover,
+    .compact-btn:hover,
+    .export-btn-mini:hover,
+    #cardKwh:hover,
+    .cal-day:hover {
+        transform: none !important;
+    }
+    .nav-item.active .icon { transform: none !important; }
+    input[type=range]::-webkit-slider-thumb:active { transform: none !important; }
+    /* Progress bary se naplní okamžitě, bez animace šířky */
+    .progress-fill { transition: none !important; }
+    /* Spinner se nechá viditelný, ale bez nekonečné rotace */
+    .spinner { animation: none !important; }
+}
+
