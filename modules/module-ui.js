@@ -1493,6 +1493,149 @@ App.updateSimulators = function() {
         let newHeatCost = origHeatCost * (1 - (insulPerc / 100));
         saveEl.innerText = `Úspora: ${Math.round(origHeatCost - newHeatCost).toLocaleString('cs-CZ')} Kč / rok`;
     }
+
+    // Porovnání "Současný stav → Po úpravě" pro každý simulátor (#91/#92).
+    // Předáme již spočítané hodnoty, abychom neměnili existující výsledkové texty.
+    try {
+        let userPrice2 = CONFIG.priceKwh;
+        const pEl2 = document.getElementById('userPriceSlider');
+        if (pEl2) userPrice2 = parseFloat(pEl2.value);
+        const origHeatCost2 = (fin && fin.total && Number.isFinite(fin.total.yearlyHeatWhEl))
+            ? (fin.total.yearlyHeatWhEl / 1000) * userPrice2 : null;
+
+        App.renderSimBeforeAfter({
+            origIndoor:    CONFIG.targetIndoorTemp,
+            targetTemp:    targetTemp,
+            insulPerc:     insulPerc,
+            origHeatCost:  origHeatCost2,
+            // poměr ztrát při změně cílové teploty (origLoss>0 garantuje smysl)
+            tempRatio:     origLoss > 0 ? (newLoss_temp / origLoss) : null
+        });
+    } catch (e) {}
+};
+
+// ─── Porovnání před/po pro simulátory (#91/#92) ─────────────────────────────
+// Aditivně doplní pod každý simulátor řádek "Současný stav → Po úpravě" z již
+// spočítaných hodnot. Řádky vytváří idempotentně (id sim*BeforeAfter) a nemění
+// existující výsledkové texty.
+App.renderSimBeforeAfter = function(d) {
+    if (!d) return;
+    const fmtC = (typeof formatCurrency === 'function') ? formatCurrency : (n) => Math.round(n) + ' Kč';
+
+    // Pomocník: idempotentně vytvoří/aktualizuje řádek hned za daným resultEl
+    const ensureRow = (anchorId, rowId) => {
+        const anchor = document.getElementById(anchorId);
+        if (!anchor) return null;
+        let row = document.getElementById(rowId);
+        if (!row) {
+            row = document.createElement('div');
+            row.id = rowId;
+            row.className = 'sim-before-after';
+            // Vlož pod kontejner výsledku (rodič anchoru), aby řádek nerušil text
+            const host = anchor.parentElement || anchor;
+            host.appendChild(row);
+        }
+        return row;
+    };
+
+    // 1) Cílová teplota: roční náklad před → po
+    const rowTemp = ensureRow('simTempResult', 'simTempBeforeAfter');
+    if (rowTemp) {
+        if (d.origHeatCost !== null && Number.isFinite(d.origHeatCost) && d.tempRatio !== null && Number.isFinite(d.tempRatio)) {
+            const after = d.origHeatCost * d.tempRatio;
+            rowTemp.innerHTML =
+                `<span class="sba-lbl">Topení nyní:</span> <b>${fmtC(d.origHeatCost)}</b>` +
+                ` <span class="sba-arrow">→</span> ` +
+                `<span class="sba-lbl">po úpravě:</span> <b>${fmtC(after)}</b>`;
+        } else {
+            rowTemp.innerHTML = `<span class="sba-lbl">Současně ${formatNum1(d.origIndoor)} °C → cíl ${formatNum1(d.targetTemp)} °C</span>`;
+        }
+    }
+
+    // 2) Zateplení: roční náklad na topení před → po
+    const rowInsul = ensureRow('simInsulSaving', 'simInsulBeforeAfter');
+    if (rowInsul) {
+        if (d.origHeatCost !== null && Number.isFinite(d.origHeatCost)) {
+            const after = d.origHeatCost * (1 - (d.insulPerc / 100));
+            rowInsul.innerHTML =
+                `<span class="sba-lbl">Topení nyní:</span> <b>${fmtC(d.origHeatCost)}</b>` +
+                ` <span class="sba-arrow">→</span> ` +
+                `<span class="sba-lbl">po zateplení:</span> <b>${fmtC(after)}</b>`;
+        } else {
+            rowInsul.innerHTML = `<span class="sba-lbl">Současný stav → zateplení ${Math.round(d.insulPerc)} %</span>`;
+        }
+    }
+
+    // Pomocná lokální formátovačka pro 1 desetinné místo (cs-CZ)
+    function formatNum1(v) {
+        if (typeof formatNumber === 'function') return formatNumber(v, 1);
+        return Number.isFinite(v) ? v.toFixed(1).replace('.', ',') : '-';
+    }
+};
+
+// ─── Předvolby simulátorů (#91/#92) ─────────────────────────────────────────
+// Nastaví příslušný slider a spustí jeho existující handler přes dispatch
+// input eventu (žádná duplicitní logika výpočtu).
+App.applySimPreset = function(name) {
+    const fire = (el) => { if (el) el.dispatchEvent(new Event('input', { bubbles: true })); };
+    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+    if (name === 'fasada') {
+        const s = document.getElementById('simInsulSlider');
+        if (s) {
+            const min = parseFloat(s.min) || 0, max = parseFloat(s.max) || 60;
+            s.value = clamp(30, min, max);
+            fire(s);
+        }
+    } else if (name === 'okna') {
+        const s = document.getElementById('simInsulSlider');
+        if (s) {
+            const min = parseFloat(s.min) || 0, max = parseFloat(s.max) || 60;
+            s.value = clamp(15, min, max);
+            fire(s);
+        }
+    } else if (name === 'sazba') {
+        const s = document.getElementById('userPriceSlider');
+        if (s) {
+            const min = parseFloat(s.min) || 2, max = parseFloat(s.max) || 10;
+            const cur = parseFloat(s.value);
+            if (Number.isFinite(cur)) {
+                s.value = clamp(cur * 0.9, min, max).toFixed(2);
+                fire(s);
+            }
+        }
+    }
+};
+
+// Idempotentní vytvoření řádku předvoleb v záložce Simulace (#91/#92).
+App.ensureSimPresetRow = function() {
+    if (document.getElementById('simPresetRow')) return;
+    // Umísti řádek za úvodní popisek laboratoře, nad první simulátor.
+    const tab = document.getElementById('tab-simulators');
+    if (!tab) return;
+    const firstInner = tab.querySelector('.card-inner');
+    if (!firstInner || !firstInner.parentElement) return;
+
+    const row = document.createElement('div');
+    row.id = 'simPresetRow';
+    row.className = 'sim-preset-row';
+
+    const presets = [
+        { name: 'fasada', label: '🧱 Zateplit fasádu' },
+        { name: 'okna',   label: '🪟 Vyměnit okna' },
+        { name: 'sazba',  label: '💸 Nová sazba –10 %' }
+    ];
+    presets.forEach(p => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'sim-preset-btn';
+        b.innerText = p.label;
+        b.setAttribute('aria-label', 'Předvolba: ' + p.label);
+        b.onclick = () => { try { App.applySimPreset(p.name); } catch (e) {} };
+        row.appendChild(b);
+    });
+
+    firstInner.parentElement.insertBefore(row, firstInner);
 };
 
 App.generateInsights = function() {
@@ -1512,6 +1655,90 @@ App.generateInsights = function() {
     } else {
         box.innerHTML = `<i>Čekám na data pro vygenerování postřehů...</i>`;
     }
+
+    // "Co dělat teď" — max 3 prioritní akce pod příběhem (#83/#85/#86)
+    try { App.buildActionItems(); } catch (e) {}
+};
+
+// ─── "Co dělat teď" — max 3 akce (#83/#85/#86) ──────────────────────────────
+// Přidá pod userInsightsBox malý prioritizovaný seznam akcí. Priority vybírá
+// jako až 3 nejnižší ze čtyř dílčích skóre. Každá položka: emoji + krátká věta
+// + tlačítko "Vyzkoušet →" do simulátorů. Idempotentní — předchozí seznam vždy
+// nejdřív odstraní.
+App.buildActionItems = function() {
+    const box = document.getElementById('userInsightsBox');
+    if (!box) return;
+
+    // Odstraň předchozí seznam akcí (idempotence)
+    const prev = box.querySelector('.action-items');
+    if (prev) prev.remove();
+
+    const sc = window.currentNoobScore;
+    if (!sc) return;
+
+    // Definice čtyř oblastí — skóre + věta + emoji. Kč/°C číslo přidáme jen
+    // pokud je bezpečně k dispozici z již spočítaných hodnot (jinak kvalitativně).
+    const fmtC = (typeof formatCurrency === 'function') ? formatCurrency : (n) => Math.round(n) + ' Kč';
+
+    // Bezpečně dostupná roční úspora ze zateplení (z financeMetrics) — pouze
+    // pokud máme platná data; jinak zůstane null a věta bude kvalitativní.
+    let insulSaveText = null;
+    try {
+        const fin = window.financeMetricsGlobal;
+        if (fin && fin.total && Number.isFinite(fin.total.yearlyHeatWhEl)) {
+            const priceEl = document.getElementById('userPriceSlider');
+            const price = priceEl ? parseFloat(priceEl.value) : CONFIG.priceKwh;
+            const origHeatCost = (fin.total.yearlyHeatWhEl / 1000) * price;
+            // Orientační dopad 20% zateplení
+            const est = origHeatCost * 0.20;
+            if (Number.isFinite(est) && est > 0) insulSaveText = ` (orientačně až ${fmtC(est)} / rok)`;
+        }
+    } catch (e) {}
+
+    const areas = [
+        { key: 'econ',   val: sc.efficiency, emoji: '⚡', text: 'Účinnost má rezervu — zkuste mírně snížit teplotu topné vody (LWT) a sledujte, jak COP poskočí.' },
+        { key: 'health', val: sc.health,     emoji: '🛡️', text: 'Zdraví kompresoru lze zlepšit — omezte zbytečné starty větší hysterezí nebo akumulační nádobou.' },
+        { key: 'smooth', val: sc.smoothness, emoji: '〰️', text: 'Plynulost chodu má prostor — delší a klidnější cykly šetří energii i kompresor.' },
+        { key: 'load',   val: sc.load,       emoji: '🏠', text: 'Izolace domu je slabší článek — i částečné zateplení znatelně sníží tepelné ztráty' + (insulSaveText || '.') }
+    ];
+
+    // Vyber až 3 nejnižší (priority) — pouze platná číselná skóre
+    const sorted = areas
+        .filter(a => Number.isFinite(a.val))
+        .sort((a, b) => a.val - b.val)
+        .slice(0, 3);
+
+    if (sorted.length === 0) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'action-items';
+
+    const head = document.createElement('div');
+    head.className = 'action-items-head';
+    head.innerText = '🎯 Co dělat teď';
+    wrap.appendChild(head);
+
+    sorted.forEach(a => {
+        const row = document.createElement('div');
+        row.className = 'action-item';
+
+        const txt = document.createElement('span');
+        txt.className = 'action-item-text';
+        txt.innerHTML = `<span class="action-item-emoji">${a.emoji}</span>${a.text}`;
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'action-item-btn';
+        btn.innerText = 'Vyzkoušet →';
+        btn.setAttribute('aria-label', 'Přejít do simulátorů úspor');
+        btn.onclick = () => { try { App.switchTab('simulators'); } catch (e) {} };
+
+        row.appendChild(txt);
+        row.appendChild(btn);
+        wrap.appendChild(row);
+    });
+
+    box.appendChild(wrap);
 };
 
 // Krátká česká vysvětlení jednotlivých skóre koleček (tap-to-explain #74–76)
@@ -1584,6 +1811,58 @@ App.updateNoobScores = function() {
     applyColor(circleHealth, sc.health);
     applyColor(circleSmooth, sc.smoothness);
     applyColor(circleLoad,  sc.load);
+
+    // Celkové souhrnné skóre nad mřížkou 4 koleček (#78)
+    try {
+        App.renderOverallScore({
+            econ:     sc.efficiency,
+            health:   sc.health,
+            smooth:   sc.smoothness,
+            load:     sc.load
+        });
+    } catch (e) {}
+};
+
+// ─── Celkové souhrnné skóre (#78) ───────────────────────────────────────────
+// Spočítá prostý průměr (0–100) ze čtyř dílčích skóre a vykreslí JEDEN souhrnný
+// odznak s emoji a barvou nad mřížku 4 koleček v .user-hero-card.
+// Element vytváří idempotentně (id userScoreOverall) — při dalším volání jen
+// aktualizuje obsah.
+App.renderOverallScore = function(scores) {
+    if (!scores) return;
+    const card = document.querySelector('.user-hero-card');
+    if (!card) return;
+
+    // Sesbírej jen platná číselná skóre a spočítej prostý průměr
+    const vals = [scores.econ, scores.health, scores.smooth, scores.load]
+        .filter(v => Number.isFinite(v));
+    if (vals.length === 0) return;
+    const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+
+    // Emoji + barva podle pásem (≥80 😀 / ≥50 🙂 / jinak 😟)
+    let emoji, col, verdict;
+    if (avg >= 80)      { emoji = '😀'; col = 'var(--success)'; verdict = 'Výborný chod'; }
+    else if (avg >= 50) { emoji = '🙂'; col = 'var(--warning)'; verdict = 'Solidní chod'; }
+    else                { emoji = '😟'; col = 'var(--danger)';  verdict = 'Vyžaduje pozornost'; }
+
+    let badge = document.getElementById('userScoreOverall');
+    if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'userScoreOverall';
+        badge.className = 'user-score-overall';
+        // Vlož nad mřížku 4 koleček: za nadpisový popisek (první dítě karty),
+        // nebo na začátek karty, pokud popisek chybí.
+        const titleEl = card.firstElementChild;
+        if (titleEl && titleEl.nextSibling) card.insertBefore(badge, titleEl.nextSibling);
+        else card.appendChild(badge);
+    }
+
+    badge.style.color = col;
+    badge.style.borderColor = col;
+    badge.innerHTML =
+        `<span class="uso-emoji">${emoji}</span>` +
+        `<span class="uso-val">${avg}%</span>` +
+        `<span class="uso-verdict">${verdict}</span>`;
 };
 
 App.updateLifespan = function() {

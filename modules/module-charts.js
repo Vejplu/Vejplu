@@ -78,6 +78,9 @@ App.initCharts = function (type) {
     if (myChart) myChart.destroy();
     if (voltChart) voltChart.destroy();
 
+    // Doplňky grafu (legenda dle režimu + tlačítko Reset zoom) — idempotentně.
+    if (typeof App.initChartExtras === 'function') App.initChartExtras();
+
     const isAggMode = ['agg_days', 'agg_months', 'agg_cop', 'cost'].includes(currentView);
 
     const common = {
@@ -255,6 +258,9 @@ App.renderCharts = function (wData, colors, descs, preserveScroll = false) {
     const lb = document.querySelector('.legend-bar');
     
     if (!holderMain || !scrollerMain || !myChart) return 0;
+
+    // Doplňky grafu (zjednodušená legenda dle režimu + tlačítko Reset zoom).
+    if (typeof App.initChartExtras === 'function') App.initChartExtras();
 
     let rawCw = scrollerMain.clientWidth; if (rawCw === 0) rawCw = window.innerWidth;
     const cW = Math.max(rawCw - 70, 300);
@@ -659,9 +665,30 @@ App.renderCurvePage = function () {
 App.showEmptyState = function (hint) {
     const msg = document.getElementById('noDataMsg');
     if (msg) {
-        msg.innerHTML = hint || '📊 Žádná data k zobrazení.<br><span style="font-size:0.8em; font-weight:400; opacity:0.8;">Nahraj prosím log (CSV) pro vykreslení grafu.</span>';
+        if (hint) {
+            msg.innerHTML = hint;
+        } else if (typeof App.setEmptyStateHint === 'function') {
+            // Bez explicitního hintu nastav přátelský výchozí text (#111).
+            App.setEmptyStateHint();
+        } else {
+            msg.innerHTML = '📊 Žádná data k zobrazení.<br><span style="font-size:0.8em; font-weight:400; opacity:0.8;">Nahraj prosím log (CSV) pro vykreslení grafu.</span>';
+        }
     }
     if (typeof App.handleNoData === 'function') App.handleNoData();
+};
+
+// Idempotentně nastaví přátelský český text do #noDataMsg (#111).
+// Nemění logiku zobrazení/skrytí — pouze obsah textu, a to jen pokud se liší.
+App.setEmptyStateHint = function () {
+    try {
+        const msg = document.getElementById('noDataMsg');
+        if (!msg) return;
+        const friendly = '📈 Žádná data pro vybrané období. Nahrajte LOG nebo změňte datum.';
+        // Nastav jen pokud aktuální text neodpovídá (idempotence).
+        if ((msg.textContent || '').trim() !== friendly) {
+            msg.innerHTML = friendly;
+        }
+    } catch (e) { }
 };
 
 
@@ -686,5 +713,123 @@ App.resetChartZoom = function () {
     } catch (e) { }
 };
 
+
+// ─── 5. RUNTIME STYLY PRO LEGENDU / RESET ZOOM ──────────────────────────────
+// Jednorázově (idempotentně) vloží <style> do <head> s pravidly pro:
+//  - zjednodušenou legendu v uživatelském režimu (skrytí technických položek)
+//  - vzhled tlačítka „Reset zoom".
+// Bezpečné volat opakovaně — styl se vloží jen jednou (kontrola dle id).
+App.injectChartRuntimeStyles = function () {
+    try {
+        if (document.getElementById('chartRuntimeStyles')) return;
+        const st = document.createElement('style');
+        st.id = 'chartRuntimeStyles';
+        st.textContent = `
+            /* Zjednodušená legenda: skryj technické položky, když má .legend-bar tuto třídu */
+            .legend-bar.legend-simple .legend-item.legend-tech { display: none !important; }
+
+            /* Malé tlačítko Reset zoom u grafu */
+            .chart-reset-zoom-btn {
+                position: absolute;
+                top: 6px;
+                right: 6px;
+                z-index: 30;
+                padding: 3px 8px;
+                font-size: 11px;
+                line-height: 1.2;
+                color: rgba(238,241,247,0.85);
+                background: rgba(15, 23, 42, 0.65);
+                border: 1px solid rgba(148, 163, 184, 0.35);
+                border-radius: 6px;
+                cursor: pointer;
+                opacity: 0.75;
+                transition: opacity 0.15s ease, background 0.15s ease;
+            }
+            .chart-reset-zoom-btn:hover {
+                opacity: 1;
+                background: rgba(30, 41, 59, 0.9);
+            }
+        `;
+        document.head.appendChild(st);
+    } catch (e) { }
+};
+
+
+// ─── 6. ZJEDNODUŠENÁ LEGENDA V UŽIVATELSKÉM REŽIMU (#104) ───────────────────
+// V režimu „mode-user" skryje technické položky legendy (Oil Return, Tlaky,
+// Defrost, Riziko) a ponechá běžné (Venkovní, Eko Mod, Standard, TUV).
+// V režimu analytika zobrazí vše. Skrytí se řeší přepnutím CSS třídy na
+// .legend-bar (DOM uzly se neodstraňují). Bezpečné při chybějících prvcích.
+App.updateLegendForMode = function () {
+    try {
+        App.injectChartRuntimeStyles();
+
+        const lb = document.querySelector('.legend-bar');
+        if (!lb) return;
+
+        // Technické položky, které se v uživatelském režimu skrývají.
+        const techKeywords = ['oil return', 'tlaky', 'defrost', 'riziko'];
+
+        // Označ technické položky třídou .legend-tech (idempotentně dle textu).
+        const items = lb.querySelectorAll('.legend-item');
+        items.forEach(function (it) {
+            const txt = (it.textContent || '').trim().toLowerCase();
+            const isTech = techKeywords.some(function (k) { return txt.indexOf(k) !== -1; });
+            if (isTech) it.classList.add('legend-tech');
+            else it.classList.remove('legend-tech');
+        });
+
+        // Uživatelský režim = zjednodušená legenda; analytik = plná legenda.
+        const isUser = document.body && document.body.classList.contains('mode-user');
+        lb.classList.toggle('legend-simple', !!isUser);
+    } catch (e) { }
+};
+
+
+// ─── 7. VIDITELNÉ TLAČÍTKO „RESET ZOOM" (#109) ──────────────────────────────
+// Idempotentně vytvoří malé tlačítko poblíž grafu, které volá App.resetChartZoom().
+// Tlačítko se vytvoří jen pokud existuje App.resetChartZoom a vhodný kontejner.
+// Bezpečné volat opakovaně — při existujícím tlačítku nic nedělá.
+App.ensureResetZoomButton = function () {
+    try {
+        if (typeof App.resetChartZoom !== 'function') return;
+        if (document.getElementById('chartResetZoomBtn')) return;
+
+        App.injectChartRuntimeStyles();
+
+        // Preferuj .chart-container, jinak rodiče vlastního tooltipu.
+        let container = document.querySelector('.chart-container');
+        if (!container) {
+            const tt = document.getElementById('chartCustomTooltip');
+            if (tt && tt.parentElement) container = tt.parentElement;
+        }
+        if (!container) return;
+
+        // Zajisti, že kontejner umí pozicovat absolutní tlačítko.
+        try {
+            const pos = window.getComputedStyle(container).position;
+            if (pos === 'static' || !pos) container.style.position = 'relative';
+        } catch (e) { }
+
+        const btn = document.createElement('button');
+        btn.id = 'chartResetZoomBtn';
+        btn.type = 'button';
+        btn.className = 'chart-reset-zoom-btn';
+        btn.textContent = '⟳ Reset zoom';
+        btn.title = 'Vrátit přiblížení / posun grafu do výchozího stavu';
+        btn.addEventListener('click', function () {
+            if (typeof App.resetChartZoom === 'function') App.resetChartZoom();
+        });
+        container.appendChild(btn);
+    } catch (e) { }
+};
+
+
+// ─── 8. INICIALIZACE DOPLŇKŮ GRAFU (legenda + reset tlačítko) ───────────────
+// Společný, bezpečný a idempotentní vstupní bod volaný při renderu grafů.
+App.initChartExtras = function () {
+    if (typeof App.updateLegendForMode === 'function') App.updateLegendForMode();
+    if (typeof App.ensureResetZoomButton === 'function') App.ensureResetZoomButton();
+};
 
 
