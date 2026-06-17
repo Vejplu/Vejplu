@@ -829,6 +829,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                     <div class="section-title">💰 Ekonomika (vybraný den)</div>
                     <div class="stats-grid">
                         <div class="stat-card" id="cardKwh" onclick="App.switchTab('finance')"><div class="stat-label">Spotřeba</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card cursor-ptr" id="cardHeatOut" onclick="App.switchTab('thermo')"><div class="stat-label">Dodané teplo</div><div class="stat-value clr-weather">-</div><div class="stat-sub">Vyrobená energie</div></div>
                         <div class="stat-card cursor-ptr" id="cardCop" onclick="App.switchTab('thermo')"><div class="stat-label">Efektivita (Mix)</div><div class="stat-value clr-success">-</div><div class="stat-sub">Celý chod vč. TUV</div></div>
                     </div>
                 </div>
@@ -942,6 +943,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                 <div class="card-inner-sm">
                     <div class="block-header" style="margin-bottom: 10px; font-size: 0.75rem;"><i>🏠</i> Fyzika budovy a Klima</div>
                     <div class="grid-2col">
+                        <div><div class="lbl-dim" id="th_houseLoss_lbl">Ztráta domu</div><div class="val-bold-lg" id="th_houseLoss">-</div><div class="txt-xxs" id="th_houseLoss_t"></div></div>
                         <div><div class="lbl-dim">Zátěž pro TČ</div><div class="val-bold-lg" id="th_loss">-</div><div class="txt-xxs" id="th_loss_t"></div></div>
                         <div><div class="lbl-dim">Měrná zátěž TČ</div><div class="val-accent" id="th_wm2">-</div><div class="txt-xxs" id="th_wm2_t"></div></div>
                         <div><div class="lbl-dim">Odhad Bivalence</div><div id="th_biv" style="font-weight: 800; color: var(--danger); font-size: 0.9rem;">-</div><div class="txt-xxs" id="th_biv_t"></div></div>
@@ -7172,6 +7174,14 @@ App.updateStats = function (s) {
         if (valEl) valEl.innerText = safeNum(s.avgCop) > 0 ? `${prefix} ${safeNum(s.avgCop).toFixed(2)}` : "-";
     }
 
+    // Dodané teplo (vyrobená energie) = spotřeba el. × COP Mix za období.
+    const cardHeatOut = document.getElementById('cardHeatOut');
+    if (cardHeatOut) {
+        const valEl = cardHeatOut.querySelector('.stat-value');
+        const heatOut = safeNum(s.totalKwh) * safeNum(s.avgCop);
+        if (valEl) valEl.innerText = heatOut > 0 ? `${heatOut.toFixed(0)} kWh` : '-';
+    }
+
     const cardLoss = document.getElementById('cardLoss');
     if (cardLoss) {
         const lblEl = cardLoss.querySelector('.stat-label');
@@ -7299,7 +7309,16 @@ App.updateThermoTab = function() {
     if (thLossTitle && thLossTitle.previousElementSibling) thLossTitle.previousElementSibling.innerText = `Zátěž pro TČ (${CONFIG.designTemp} °C)`;
 
     setVal('th_loss', houseK.all > 0 ? Math.round(lossHP.all) + ' W' : '-');
-    setTrend('th_loss_t', lossHP.recent - lossHP.older, 'W', true); 
+    setTrend('th_loss_t', lossHP.recent - lossHP.older, 'W', true);
+
+    // Ztráta domu = hrubá tepelná ztráta budovy při návrhové teplotě (houseK × ΔT).
+    let totalDesignLoss = houseK.all > 0 ? houseK.all * tempDiff : 0;
+    let lossArea = (CONFIG && CONFIG.floorArea > 0) ? CONFIG.floorArea : 100;
+    setVal('th_houseLoss', totalDesignLoss > 0 ? Math.round(totalDesignLoss) + ' W' : '-');
+    const thHouseLossLbl = document.getElementById('th_houseLoss_lbl');
+    if (thHouseLossLbl) thHouseLossLbl.innerText = `Ztráta domu (${CONFIG.designTemp}°C)`;
+    const thHouseLossT = document.getElementById('th_houseLoss_t');
+    if (thHouseLossT) thHouseLossT.innerText = totalDesignLoss > 0 ? (totalDesignLoss / lossArea).toFixed(1) + ' W/m²' : '';
 
     setVal('th_wm2', houseK.all > 0 ? wm2HP.all.toFixed(1) + ' W/m²' : '-');
     setTrend('th_wm2_t', wm2HP.recent - wm2HP.older, 'W/m²', true);

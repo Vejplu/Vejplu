@@ -376,6 +376,7 @@
                     <div class="section-title">💰 Ekonomika (vybraný den)</div>
                     <div class="stats-grid">
                         <div class="stat-card" id="cardKwh" onclick="App.switchTab('finance')"><div class="stat-label">Spotřeba</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
+                        <div class="stat-card cursor-ptr" id="cardHeatOut" onclick="App.switchTab('thermo')"><div class="stat-label">Dodané teplo</div><div class="stat-value clr-weather">-</div><div class="stat-sub">Vyrobená energie</div></div>
                         <div class="stat-card cursor-ptr" id="cardCop" onclick="App.switchTab('thermo')"><div class="stat-label">Efektivita (Mix)</div><div class="stat-value clr-success">-</div><div class="stat-sub">Celý chod vč. TUV</div></div>
                     </div>
                 </div>
@@ -489,6 +490,7 @@
                 <div class="card-inner-sm">
                     <div class="block-header" style="margin-bottom: 10px; font-size: 0.75rem;"><i>🏠</i> Fyzika budovy a Klima</div>
                     <div class="grid-2col">
+                        <div><div class="lbl-dim" id="th_houseLoss_lbl">Ztráta domu</div><div class="val-bold-lg" id="th_houseLoss">-</div><div class="txt-xxs" id="th_houseLoss_t"></div></div>
                         <div><div class="lbl-dim">Zátěž pro TČ</div><div class="val-bold-lg" id="th_loss">-</div><div class="txt-xxs" id="th_loss_t"></div></div>
                         <div><div class="lbl-dim">Měrná zátěž TČ</div><div class="val-accent" id="th_wm2">-</div><div class="txt-xxs" id="th_wm2_t"></div></div>
                         <div><div class="lbl-dim">Odhad Bivalence</div><div id="th_biv" style="font-weight: 800; color: var(--danger); font-size: 0.9rem;">-</div><div class="txt-xxs" id="th_biv_t"></div></div>

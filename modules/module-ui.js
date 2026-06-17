@@ -93,6 +93,14 @@ App.updateStats = function (s) {
         if (valEl) valEl.innerText = safeNum(s.avgCop) > 0 ? `${prefix} ${safeNum(s.avgCop).toFixed(2)}` : "-";
     }
 
+    // Dodané teplo (vyrobená energie) = spotřeba el. × COP Mix za období.
+    const cardHeatOut = document.getElementById('cardHeatOut');
+    if (cardHeatOut) {
+        const valEl = cardHeatOut.querySelector('.stat-value');
+        const heatOut = safeNum(s.totalKwh) * safeNum(s.avgCop);
+        if (valEl) valEl.innerText = heatOut > 0 ? `${heatOut.toFixed(0)} kWh` : '-';
+    }
+
     const cardLoss = document.getElementById('cardLoss');
     if (cardLoss) {
         const lblEl = cardLoss.querySelector('.stat-label');
@@ -220,7 +228,16 @@ App.updateThermoTab = function() {
     if (thLossTitle && thLossTitle.previousElementSibling) thLossTitle.previousElementSibling.innerText = `Zátěž pro TČ (${CONFIG.designTemp} °C)`;
 
     setVal('th_loss', houseK.all > 0 ? Math.round(lossHP.all) + ' W' : '-');
-    setTrend('th_loss_t', lossHP.recent - lossHP.older, 'W', true); 
+    setTrend('th_loss_t', lossHP.recent - lossHP.older, 'W', true);
+
+    // Ztráta domu = hrubá tepelná ztráta budovy při návrhové teplotě (houseK × ΔT).
+    let totalDesignLoss = houseK.all > 0 ? houseK.all * tempDiff : 0;
+    let lossArea = (CONFIG && CONFIG.floorArea > 0) ? CONFIG.floorArea : 100;
+    setVal('th_houseLoss', totalDesignLoss > 0 ? Math.round(totalDesignLoss) + ' W' : '-');
+    const thHouseLossLbl = document.getElementById('th_houseLoss_lbl');
+    if (thHouseLossLbl) thHouseLossLbl.innerText = `Ztráta domu (${CONFIG.designTemp}°C)`;
+    const thHouseLossT = document.getElementById('th_houseLoss_t');
+    if (thHouseLossT) thHouseLossT.innerText = totalDesignLoss > 0 ? (totalDesignLoss / lossArea).toFixed(1) + ' W/m²' : '';
 
     setVal('th_wm2', houseK.all > 0 ? wm2HP.all.toFixed(1) + ' W/m²' : '-');
     setTrend('th_wm2_t', wm2HP.recent - wm2HP.older, 'W/m²', true);
