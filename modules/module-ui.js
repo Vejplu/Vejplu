@@ -623,6 +623,11 @@ App.switchTab = function (tabName, el) {
     }
 
     if (tabName === 'charts') {
+        // Jednoduchý režim: grafy jen jako agregace, ne technický průběh.
+        if (currentAppMode === 'user' && ['line', 'bar', 'thermal'].includes(currentView)) {
+            try { App.setView('agg_cop'); } catch (e) {}
+            return;
+        }
         if (typeof App.updateChartButtons === 'function') App.updateChartButtons();
         setTimeout(() => {
             if (!myChart) {
@@ -1398,6 +1403,11 @@ App.toggleMode = function(cb) {
     }
 
     setTimeout(() => {
+        // Jednoduchý režim: technický průběh grafu nahraď agregací COP.
+        if (currentAppMode === 'user' && ['line', 'bar', 'thermal'].includes(currentView)) {
+            try { App.setView('agg_cop'); } catch (e) {}
+            return;
+        }
         if (currentView === 'line' || currentView === 'bar' || currentView === 'thermal') {
             if (lastWindowData && lastWindowData.length > 0) {
                 App.renderCharts(lastWindowData, lastColors, lastDescriptions, true);
@@ -1406,18 +1416,12 @@ App.toggleMode = function(cb) {
     }, 50);
 };
 
-// Skrytí technických záložek (Termo, volitelně Grafy) v uživatelském režimu (#67).
-// Nemaže z DOM — pouze přepíná třídu .nav-hidden-user.
+// Viditelnost záložek dle režimu. Všechny záložky jsou viditelné v obou
+// režimech; rozdíl obsahu řeší třída .expert-only (skrytá v jednoduchém
+// režimu přes CSS). Tato funkce jen odstraní případné skrytí ze starší logiky.
 App.applyModeNav = function() {
-    const navItems = document.querySelectorAll('.bottom-nav .nav-item');
-    navItems.forEach(item => {
-        const oc = item.getAttribute('onclick') || '';
-        // V uživatelském režimu skryj "Termo" (a "Grafy")
-        const isTechnical = oc.includes("'thermo'") || oc.includes("'charts'");
-        if (isTechnical) {
-            item.classList.toggle('nav-hidden-user', currentAppMode === 'user');
-        }
-    });
+    document.querySelectorAll('.bottom-nav .nav-item.nav-hidden-user')
+        .forEach(item => item.classList.remove('nav-hidden-user'));
 };
 
 App.updateSimulators = function() {

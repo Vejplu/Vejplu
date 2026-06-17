@@ -67,6 +67,8 @@ body {
 /* --- LOGIKA PŘEPÍNÁNÍ REŽIMŮ --- */
 body.mode-analyst .user-view { display: none !important; }
 body.mode-user .analyst-view { display: none !important; }
+/* V jednoduchém (uživatelském) režimu skryj technické (expertní) části. */
+body.mode-user .expert-only { display: none !important; }
 
 /* --- PLOVOUCÍ PRVKY NAHOŘE (pill sklo) --- */
 .top-floating-container { position: fixed; top: 12px; left: 0; width: 100%; z-index: 2000; pointer-events: none; }
@@ -824,11 +826,10 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
             <!-- ANALYST VIEW -->
             <div class="dashboard-layout analyst-view">
                 <div class="section-wrapper">
-                    <div class="section-title">💰 Ekonomika &amp; Ztráty</div>
+                    <div class="section-title">💰 Ekonomika (vybraný den)</div>
                     <div class="stats-grid">
                         <div class="stat-card" id="cardKwh" onclick="App.switchTab('finance')"><div class="stat-label">Spotřeba</div><div class="stat-value">-</div><div class="stat-sub"></div></div>
                         <div class="stat-card cursor-ptr" id="cardCop" onclick="App.switchTab('thermo')"><div class="stat-label">Efektivita (Mix)</div><div class="stat-value clr-success">-</div><div class="stat-sub">Celý chod vč. TUV</div></div>
-                        <div class="stat-card cursor-ptr" id="cardLoss" onclick="App.switchTab('thermo')"><div class="stat-label">Ztráta domu (-15°C)</div><div class="stat-value">-</div><div class="stat-sub"><span class="clr-weather" id="statHouseK"></span><span id="statWm2" style="color:var(--accent); font-weight:800; margin-left: 5px;"></span></div></div>
                     </div>
                 </div>
                 <div class="section-wrapper">
@@ -944,18 +945,18 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                         <div><div class="lbl-dim">Zátěž pro TČ</div><div class="val-bold-lg" id="th_loss">-</div><div class="txt-xxs" id="th_loss_t"></div></div>
                         <div><div class="lbl-dim">Měrná zátěž TČ</div><div class="val-accent" id="th_wm2">-</div><div class="txt-xxs" id="th_wm2_t"></div></div>
                         <div><div class="lbl-dim">Odhad Bivalence</div><div id="th_biv" style="font-weight: 800; color: var(--danger); font-size: 0.9rem;">-</div><div class="txt-xxs" id="th_biv_t"></div></div>
-                        <div><div class="lbl-dim">Zátěž TČ (W/K)</div><div class="val-bold-lg" id="th_houseK">-</div><div class="txt-xxs" id="th_houseK_t"></div></div>
-                        
-                        <div class="border-top-dim">
+                        <div class="expert-only"><div class="lbl-dim">Zátěž TČ (W/K)</div><div class="val-bold-lg" id="th_houseK">-</div><div class="txt-xxs" id="th_houseK_t"></div></div>
+
+                        <div class="border-top-dim expert-only">
                             <div class="lbl-dim">Zisky zima (&lt; 3°C)</div>
                             <div class="val-warning" id="th_gain_zima">-</div>
                         </div>
-                        <div class="border-top-dim">
+                        <div class="border-top-dim expert-only">
                             <div class="lbl-dim">Zisky přechod (≥ 3°C)</div>
                             <div class="val-warning" id="th_gain_prechod">-</div>
                         </div>
-                        
-                        <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px; grid-column: span 2; display: flex; justify-content: space-between;">
+
+                        <div class="expert-only" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 6px; grid-column: span 2; display: flex; justify-content: space-between;">
                             <div>
                                 <div class="lbl-dim">Dennostupně (HDD)</div>
                                 <div style="display: flex; align-items: baseline; gap: 6px;">
@@ -974,7 +975,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                     </div>
                 </div>
 
-                <div style="background: rgba(255,255,255,0.035); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 4px;">
+                <div class="expert-only" style="background: rgba(255,255,255,0.035); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 4px;">
                     <div class="block-header" style="margin-bottom: 10px; font-size: 0.75rem; color: var(--accent);"><i class="clr-accent-var">⚙️</i> Limity a Chování systému</div>
                     <div class="grid-2col">
                         <div>
@@ -990,7 +991,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                     </div>
                 </div>
 
-                <div class="grid-2col">
+                <div class="grid-2col expert-only">
                     <div class="card-inner-sm">
                         <div class="block-header" style="margin-bottom: 8px; font-size: 0.75rem; color: var(--accent);"><i class="clr-accent-var">🔥</i> Topení</div>
                         <div class="mb-8">
@@ -1020,7 +1021,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                     </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
+                <div class="expert-only" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 10px;">
                     <div class="detail-col pad-flex-col">
                         <div class="lbl-header-light">Ztráty odtáváním</div>
                         <div id="th_defrostWh" style="font-size: 1rem; font-weight: 900; color: var(--danger); margin: 2px 0;">-</div>
@@ -1040,7 +1041,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
             <div class="chart-container pos-rel">
                 <div class="control-bar">
                     <div class="view-section">
-                        <button id="btnGroup1" class="view-btn active" onclick="App.cycleGroup1()">LINE</button>
+                        <button id="btnGroup1" class="view-btn active expert-only" onclick="App.cycleGroup1()">LINE</button>
                         <button id="btnGroup2" class="view-btn" onclick="App.cycleGroup2()">DNY</button>
                         <button id="btnCopView" class="view-btn" onclick="App.setView('agg_cop')">COP</button>
                         <button id="btnCostView" class="view-btn" onclick="App.setView('cost')">CENA</button>
@@ -1062,7 +1063,7 @@ input[type=range]::-moz-range-thumb { border: 2px solid #fff; height: 20px; widt
                                 <canvas class="fill-block" id="yAxisTemp"></canvas>
                             </div>
                         </div>
-                        <div id="axisVoltWrap" style="display: flex; height: 80px; flex-shrink: 0; margin-top: 4px;">
+                        <div id="axisVoltWrap" class="expert-only" style="display: flex; height: 80px; flex-shrink: 0; margin-top: 4px;">
                             <div class="axis-column axis-col-left">
                                 <canvas class="fill-block" id="yAxisVolt"></canvas>
                             </div>
@@ -7701,6 +7702,11 @@ App.switchTab = function (tabName, el) {
     }
 
     if (tabName === 'charts') {
+        // Jednoduchý režim: grafy jen jako agregace, ne technický průběh.
+        if (currentAppMode === 'user' && ['line', 'bar', 'thermal'].includes(currentView)) {
+            try { App.setView('agg_cop'); } catch (e) {}
+            return;
+        }
         if (typeof App.updateChartButtons === 'function') App.updateChartButtons();
         setTimeout(() => {
             if (!myChart) {
@@ -8476,6 +8482,11 @@ App.toggleMode = function(cb) {
     }
 
     setTimeout(() => {
+        // Jednoduchý režim: technický průběh grafu nahraď agregací COP.
+        if (currentAppMode === 'user' && ['line', 'bar', 'thermal'].includes(currentView)) {
+            try { App.setView('agg_cop'); } catch (e) {}
+            return;
+        }
         if (currentView === 'line' || currentView === 'bar' || currentView === 'thermal') {
             if (lastWindowData && lastWindowData.length > 0) {
                 App.renderCharts(lastWindowData, lastColors, lastDescriptions, true);
@@ -8484,18 +8495,12 @@ App.toggleMode = function(cb) {
     }, 50);
 };
 
-// Skrytí technických záložek (Termo, volitelně Grafy) v uživatelském režimu (#67).
-// Nemaže z DOM — pouze přepíná třídu .nav-hidden-user.
+// Viditelnost záložek dle režimu. Všechny záložky jsou viditelné v obou
+// režimech; rozdíl obsahu řeší třída .expert-only (skrytá v jednoduchém
+// režimu přes CSS). Tato funkce jen odstraní případné skrytí ze starší logiky.
 App.applyModeNav = function() {
-    const navItems = document.querySelectorAll('.bottom-nav .nav-item');
-    navItems.forEach(item => {
-        const oc = item.getAttribute('onclick') || '';
-        // V uživatelském režimu skryj "Termo" (a "Grafy")
-        const isTechnical = oc.includes("'thermo'") || oc.includes("'charts'");
-        if (isTechnical) {
-            item.classList.toggle('nav-hidden-user', currentAppMode === 'user');
-        }
-    });
+    document.querySelectorAll('.bottom-nav .nav-item.nav-hidden-user')
+        .forEach(item => item.classList.remove('nav-hidden-user'));
 };
 
 App.updateSimulators = function() {

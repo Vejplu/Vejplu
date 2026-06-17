@@ -55,6 +55,8 @@ body {
 /* --- LOGIKA PŘEPÍNÁNÍ REŽIMŮ --- */
 body.mode-analyst .user-view { display: none !important; }
 body.mode-user .analyst-view { display: none !important; }
+/* V jednoduchém (uživatelském) režimu skryj technické (expertní) části. */
+body.mode-user .expert-only { display: none !important; }
 
 /* --- PLOVOUCÍ PRVKY NAHOŘE (pill sklo) --- */
 .top-floating-container { position: fixed; top: 12px; left: 0; width: 100%; z-index: 2000; pointer-events: none; }
