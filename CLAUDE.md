@@ -27,13 +27,20 @@ Při vypisování kódu této aplikace se **vždy** řiď těmito pravidly:
    a účel.
 
 ### Pořadí modulů
-Kostra → `CSS` → `WORKER` → `STATE` → `UTILS` → `API` → `CHARTS` → `UI`
+Kostra → `CSS` → `WORKER` → `STATE` → `UTILS` → `API` → `CHARTS` →
+`FINANCE` → `CALENDAR` → `EXPORT` → `UI`
 
 ## Struktura projektu
 - `index.html` — sestavená jednosouborová aplikace (výstup buildu).
 - `modules/` — zdrojové moduly: `skeleton.html` (kostra s placeholdery),
   `module-css.css`, `module-worker.js`, `module-state.js`, `module-utils.js`,
-  `module-api.js`, `module-charts.js`, `module-ui.js`.
+  `module-api.js`, `module-charts.js`, `module-finance.js`,
+  `module-calendar.js`, `module-export.js`, `module-ui.js`.
+  - `module-finance.js` — náklady, sezónní souhrny a odhady (z UI).
+  - `module-calendar.js` — výběr dne/měsíce/roku a časová navigace (z UI).
+  - `module-export.js` — pokročilý export provozních dat (z UI).
+  - Fyzikální výpočty ztráty (`heatLossW`, `designLossW`) jsou v `module-utils.js`;
+    worker má vlastní shodnou kopii (jiné vlákno) — drž je v souladu.
 - `build.js` — složí `modules/` zpět do `index.html` (`node build.js`).
   Po úpravě modulů vždy znovu sestav `index.html`.
 - `VYLEPSENI-PLAN.md` — roadmapa vylepšení. `OPRAVY.md` — historie oprav.

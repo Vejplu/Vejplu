@@ -18,6 +18,13 @@
 
 const TYPE = { GRAY: 0, HEAT_STD: 1, HEAT_ECO: 2, TUV: 3, OIL: 4, DEFROST: 5, RISK: 6, MISSING: 7, PRESSURE: 8 };
 
+// ─── FYZIKA BUDOVY (kopie pro vlákno workeru) ───────────────────────────────
+// Worker nevidí module-utils.js, proto má vlastní pojmenované kopie. Definice
+// MUSÍ zůstat shodná s heatLossW/designLossW v module-utils.js.
+function heatLossW(houseK, tIn, tOut, gainW = 0) {
+    return houseK * (tIn - tOut) - gainW;
+}
+
 // ==========================================
 // 1. DATA A PARSOVÁNÍ VÝKONOVÉ MATICE
 // ==========================================
@@ -210,11 +217,11 @@ if (!houseK || houseK <= 0 || !maxTcCurve || maxTcCurve.length < 2) return null;
 for (let i = maxTcCurve.length - 1; i >= 1; i--) {
     let tA = maxTcCurve[i].temp;
     let cA = maxTcCurve[i].maxTc;
-    let lA = houseK * (targetIndoorTemp - tA) - gainW;
-    
+    let lA = heatLossW(houseK, targetIndoorTemp, tA, gainW);
+
     let tB = maxTcCurve[i-1].temp;
     let cB = maxTcCurve[i-1].maxTc;
-    let lB = houseK * (targetIndoorTemp - tB) - gainW;
+    let lB = heatLossW(houseK, targetIndoorTemp, tB, gainW);
     
     if (lA <= cA && lB > cB) {
         let w = (cA - lA) / ((cA - lA) - (cB - lB));
@@ -224,7 +231,7 @@ for (let i = maxTcCurve.length - 1; i >= 1; i--) {
 
 let p0 = maxTcCurve[0]; 
 let p1 = maxTcCurve[1]; 
-let loss0 = houseK * (targetIndoorTemp - p0.temp) - gainW;
+let loss0 = heatLossW(houseK, targetIndoorTemp, p0.temp, gainW);
 
 if (loss0 <= p0.maxTc) {
     let slope = (p1.maxTc - p0.maxTc) / (p1.temp - p0.temp);

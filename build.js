@@ -24,6 +24,9 @@ const MODULES = [
   { id: 'module-utils', file: 'module-utils.js' },
   { id: 'module-api', file: 'module-api.js' },
   { id: 'module-charts', file: 'module-charts.js' },
+  { id: 'module-finance', file: 'module-finance.js' },
+  { id: 'module-calendar', file: 'module-calendar.js' },
+  { id: 'module-export', file: 'module-export.js' },
   { id: 'module-ui', file: 'module-ui.js' },
 ];
 

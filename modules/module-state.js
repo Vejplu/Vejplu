@@ -912,9 +912,14 @@ let minModulationThGlobal     = null; // minimální tep. výkon při stabilní 
 window.App = window.App || {};
 App.uploadedFileText = null; // Nahraný soubor přes tlačítko
 
-// Pomocná funkce pro bezpečné vyvolání události
+// Jednoduchá sběrnice událostí nad DOM CustomEvent. App.emit vyšle událost,
+// App.on se na ni přihlásí — symetrický pár pro čitelný tok dat mezi moduly.
 App.emit = function(eventName, detail = {}) {
     document.dispatchEvent(new CustomEvent(eventName, { detail }));
+};
+
+App.on = function(eventName, handler) {
+    document.addEventListener(eventName, handler);
 };
 
 // ─── 6. PERZISTENCE KONFIGURACE (localStorage) S VERZOVÁNÍM ────────────────────

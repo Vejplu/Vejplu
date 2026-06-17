@@ -319,4 +319,20 @@ function formatPercent(n, decimals = 1) {
     return s === '-' ? '-' : s + ' %';
 }
 
+// ─── FYZIKA BUDOVY (sdílené výpočty tepelné ztráty) ─────────────────────────
+// Jediný zdroj pravdy pro HLAVNÍ vlákno (UI, simulátory, thermo). Worker běží
+// v samostatném vlákně a nevidí utils, proto má vlastní pojmenované kopie
+// (heatLossW/designLossW) ve svém souboru — drž obě definice v souladu.
+
+// Okamžitá tepelná ztráta [W] = houseK·(tIn − tOut) − interní/solární zisky.
+function heatLossW(houseK, tIn, tOut, gainW = 0) {
+    return houseK * (tIn - tOut) - gainW;
+}
+
+// Návrhová (hrubá) tepelná ztráta domu [W] při návrhové venkovní teplotě.
+// Záměrně bez zisků — odpovídá „Ztrátě domu" v UI.
+function designLossW(houseK, tIn, tDesign) {
+    return houseK * (tIn - tDesign);
+}
+
 
