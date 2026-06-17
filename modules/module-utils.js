@@ -1,6 +1,5 @@
 
 
-
 App.refreshColors = function () {
     if (typeof getCssColors === 'function') {
         CONFIG.colors = getCssColors();

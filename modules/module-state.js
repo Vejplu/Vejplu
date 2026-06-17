@@ -3,7 +3,6 @@
 
 
 
-
 // 1. PŘEDVOLBY TEPELNÝCH ČERPADEL
 const HP_PRESETS = {
 

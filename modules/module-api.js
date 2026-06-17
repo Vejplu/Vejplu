@@ -1,5 +1,4 @@
 
-
 // ─── 1. INICIALIZACE WEB WORKERU ────────────────────────────────────────────
 workerBlob = new Blob([document.getElementById('workerScript').textContent], { type: "text/javascript" });
 worker = new Worker(window.URL.createObjectURL(workerBlob));

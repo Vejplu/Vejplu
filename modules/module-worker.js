@@ -1,6 +1,5 @@
 
 
-
 // ══════════════════════════════════════════════════════════════════════════════
 // TČ Expert PRO — Web Worker
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2002,46 +2001,6 @@ try {
     try {
         noobScore = generateNoobScoreAndStory(mainResult.stats, config, memCache.physics, memCache.globalMetrics);
     } catch(e) { console.error("NoobScore error:", e); }
-
-    // ─── PLAN #77: TRENDY SKÓRE (předchozí období) ───────────────────────────
-    // Aditivně dopočítáme STEJNÁ čtyři uživatelská skóre (efficiency, health,
-    // smoothness, load) i pro DŘÍVĚJŠÍ okno — okno stejné délky, posunuté zpět
-    // o trendDays. UI pak může zobrazit trendové šipky (↑/↓/→).
-    // Defenzivně: nesahá na primární výpočet noobScore; při nedostatku dat null.
-    try {
-        if (noobScore && Number.isFinite(startTs) && Number.isFinite(endTs) && endTs > startTs) {
-            const trendDays  = (config.system && config.system.trendDays) ? config.system.trendDays : 7;
-            const shiftSec   = trendDays * 86400;            // posun okna zpět [s]
-            const prevEndTs   = startTs;                     // dřívější okno končí tam, kde začíná aktuální
-            const prevStartTs = startTs - shiftSec;          // a sahá o trendDays zpět
-
-            // Smysluplné dřívější okno musí ležet uvnitř naměřených dat
-            const dataFirstTs = (memCache.filledData && memCache.filledData.length > 0)
-                ? memCache.filledData[0].ts : null;
-
-            if (dataFirstTs !== null && prevStartTs >= dataFirstTs && prevEndTs > prevStartTs) {
-                const prevResult = extractDay(memCache, prevStartTs, prevEndTs, config);
-                prevResult.stats.isOfflineWeather = memCache.isOfflineWeather;
-                const prevScore = generateNoobScoreAndStory(prevResult.stats, config, memCache.physics, memCache.globalMetrics);
-                // Připojíme jen čtyři číselné metriky (bez story) — pouze pokud jsou platné
-                if (prevScore
-                    && Number.isFinite(prevScore.efficiency) && Number.isFinite(prevScore.health)
-                    && Number.isFinite(prevScore.smoothness) && Number.isFinite(prevScore.load)) {
-                    noobScore.prev = {
-                        efficiency: prevScore.efficiency,
-                        health:     prevScore.health,
-                        smoothness: prevScore.smoothness,
-                        load:       prevScore.load
-                    };
-                } else {
-                    noobScore.prev = null;
-                }
-            } else {
-                // Nedostatek dřívějších dat pro smysluplné porovnání
-                noobScore.prev = null;
-            }
-        }
-    } catch(e) { console.error("NoobScore trend error:", e); if (noobScore) noobScore.prev = null; }
 } catch(e) {
     self.postMessage({ type: 'ERROR', jobId, error: 'Chyba při přípravě výřezu dat: ' + e.message });
     return;
