@@ -533,53 +533,6 @@ App.generateExport = function() {
     }
 };
 
-// ─── AUTOMATICKÁ AKTUALIZACE evanTemps Z OPEN-METEO (síťové volání) ──────────
-// Přesunuto z module-ui.js do API vrstvy. Volá se z App.updateConfig().
-// ─── AUTOMATICKÁ AKTUALIZACE evanTemps Z OPEN-METEO ───────────────────────
-// Volá se z updateConfig() pokud uživatel změní locLat/locLon.
-// Stáhne průměrné měsíční teploty za posledních 5 let pro novou lokaci.
-App.updateEvanTemps = async function(lat, lon) {
-    const statusEl = document.getElementById('statusFreq');
-    try {
-        const endYear  = new Date().getFullYear();
-        const startYear = endYear - 5;
-        const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${startYear}-01-01&end_date=${endYear}-12-31&daily=temperature_2m_mean&timeformat=unixtime`;
 
-        if (statusEl) { statusEl.innerText = 'Stahuji průměrné teploty pro novou lokaci…'; statusEl.style.color = 'var(--accent)'; }
 
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const data = await resp.json();
-        if (!data.daily || !data.daily.time) throw new Error('Prázdná odpověď');
 
-        const sums   = new Array(12).fill(0);
-        const counts = new Array(12).fill(0);
-        data.daily.time.forEach((ts, i) => {
-            const m = new Date(ts * 1000).getMonth();
-            const t = data.daily.temperature_2m_mean[i];
-            if (t !== null && Number.isFinite(t)) { sums[m] += t; counts[m]++; }
-        });
-
-        CONFIG.evanTemps = sums.map((s, i) =>
-            counts[i] > 0 ? Math.round(s / counts[i] * 10) / 10 : CONFIG.evanTemps[i]
-        );
-
-        // Aktualizuj input pokud existuje
-        const evanEl = document.getElementById('evanTemps');
-        if (evanEl) evanEl.value = CONFIG.evanTemps.join(', ');
-
-        if (statusEl) { statusEl.innerText = 'Teploty lokace aktualizovány — přepočítávám…'; statusEl.style.color = 'var(--success)'; }
-
-        // Invaliduj cache a přepočítej
-        if (typeof dayCache !== 'undefined') dayCache = {};
-        if (typeof worker !== 'undefined' && worker) {
-            workerHasData = false;
-            worker.postMessage({ type: 'CLEAR_CACHE' });
-        }
-        App.runPipeline();
-    } catch(e) {
-        console.warn('updateEvanTemps selhalo:', e);
-        if (statusEl) { statusEl.innerText = 'Lokace změněna — teploty nelze stáhnout, pokračuji s původními.'; statusEl.style.color = 'var(--warning)'; }
-        App.runPipeline(); // pokračuj i bez nových evanTemps
-    }
-};

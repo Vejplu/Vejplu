@@ -503,7 +503,127 @@ App.updateExpertScore = function() {
     }
 };
 
-// (přesunuto do module-finance.js)
+// ─── 5. FINANCE A ODHADY ────────────────────────────────────────────────────
+App.changeSeason = function (delta) {
+    const keys = Object.keys(seasonalStats || {}).sort();
+    if (keys.length === 0) return;
+    if (selectedSeason === null) selectedSeason = delta > 0 ? keys[0] : keys[keys.length - 1];
+    else {
+        let idx = keys.indexOf(selectedSeason) + delta;
+        selectedSeason = (idx < 0 || idx >= keys.length) ? null : keys[idx];
+    }
+    App.updateFinanceView();
+};
+
+App.updateFinanceView = function () {
+    const fin = window.financeMetricsGlobal;
+    if (!currentStats || !fin) return;
+    
+    const p = CONFIG.priceKwh;
+    
+    const safe = (x, fb = 0) => Number.isFinite(x) ? x : fb;
+
+    const s = selectedSeason && fin.seasons[selectedSeason] ? fin.seasons[selectedSeason] : fin.total;
+    if (!s) return;
+
+    const setText = (id, text) => { const el = document.getElementById(id); if (el) el.innerText = text; };
+
+    setText('win_L_Sum', "1 den (Ø)"); 
+    setText('win_C_Sum', safe(s.avgTotalKwh).toFixed(1) + " kWh"); 
+    setText('win_R_Sum', (safe(s.avgTotalKwh) * p).toFixed(0) + " Kč");
+    setText('win_C_Heat', safe(s.avgHeatKwh).toFixed(1) + " kWh"); 
+    setText('win_R_Heat', (safe(s.avgHeatKwh) * p).toFixed(0) + " Kč");
+    setText('win_C_Tuv', safe(s.avgTuvKwh).toFixed(1) + " kWh"); 
+    setText('win_R_Tuv', (safe(s.avgTuvKwh) * p).toFixed(0) + " Kč");
+    setText('win_C_Standby', safe(s.avgStandbyKwh).toFixed(1) + " kWh"); 
+    setText('win_R_Standby', (safe(s.avgStandbyKwh) * p).toFixed(0) + " Kč");
+
+    setText('seasonLabel', selectedSeason || "CELKEM");
+
+    setText('all_L_Sum', Math.round(s.days) + " dní"); 
+    setText('all_C_Sum', safe(s.totalKwh).toFixed(0) + " kWh"); 
+    setText('all_R_Sum', (safe(s.totalKwh) * p).toFixed(0) + " Kč");
+    setText('all_C_Heat', safe(s.totalHeatKwh).toFixed(0) + " kWh"); 
+    setText('all_R_Heat', (safe(s.totalHeatKwh) * p).toFixed(0) + " Kč");
+    setText('all_C_Tuv', safe(s.totalTuvKwh).toFixed(0) + " kWh"); 
+    setText('all_R_Tuv', (safe(s.totalTuvKwh) * p).toFixed(0) + " Kč");
+    setText('all_C_Standby', safe(s.totalStandbyKwh).toFixed(0) + " kWh"); 
+    setText('all_R_Standby', (safe(s.totalStandbyKwh) * p).toFixed(0) + " Kč");
+
+    const scopEl = document.getElementById('est_SCOP');
+    const scopHeatEl = document.getElementById('est_SCOP_Heat');
+    if (scopEl) scopEl.innerText = s.isSummerData ? "-" : s.finalSCOP.toFixed(2);
+    if (scopHeatEl) scopHeatEl.innerText = s.isSummerData ? "-" : s.finalScopHeat.toFixed(2);
+
+    const invalidStyle = s.isSummerData ? 'text-decoration: line-through; opacity: 0.5;' : '';
+    
+    setText('est_C_Tuv', s.estTuvKwh.toFixed(0) + " kWh"); 
+    setText('est_R_Tuv', (s.estTuvKwh * p).toFixed(0) + " Kč");
+
+    const heatElKwh = document.getElementById('est_C_Heat');
+    const heatElCost = document.getElementById('est_R_Heat');
+    if (heatElKwh) { heatElKwh.innerText = (s.yearlyHeatWhEl / 1000).toFixed(0) + " kWh"; heatElKwh.style.cssText = invalidStyle; }
+    if (heatElCost) { heatElCost.innerText = ((s.yearlyHeatWhEl / 1000) * p).toFixed(0) + " Kč"; heatElCost.style.cssText = invalidStyle; }
+
+    const standbyElKwh = document.getElementById('est_C_Standby');
+    const standbyElCost = document.getElementById('est_R_Standby');
+    if (standbyElKwh) { standbyElKwh.innerText = safe(s.yearlyStandbyKwh).toFixed(0) + " kWh"; standbyElKwh.style.cssText = invalidStyle; }
+    if (standbyElCost) { standbyElCost.innerText = (safe(s.yearlyStandbyKwh) * p).toFixed(0) + " Kč"; standbyElCost.style.cssText = invalidStyle; }
+
+    const sumElKwh = document.getElementById('est_C_Sum');
+    const sumElCost = document.getElementById('est_R_Sum');
+    if (sumElKwh && sumElCost) {
+        if (s.isSummerData) {
+            sumElKwh.innerText = "> " + s.estTuvKwh.toFixed(0) + " kWh"; 
+            sumElCost.innerText = "> " + (s.estTuvKwh * p).toFixed(0) + " Kč";
+            sumElKwh.style.color = "var(--warning)"; sumElCost.style.color = "var(--warning)";
+        } else {
+            sumElKwh.innerText = s.totalEstElKwh.toFixed(0) + " kWh"; 
+            sumElCost.innerText = (s.totalEstElKwh * p).toFixed(0) + " Kč";
+            sumElKwh.style.color = ""; sumElCost.style.color = "";
+        }
+    }
+
+    const realElKwh = document.getElementById('est_C_Real');
+    const realElCost = document.getElementById('est_R_Real');
+    if (realElKwh && realElCost) {
+        if (s.isSummerData) {
+            realElKwh.innerText = "-";
+            realElCost.innerText = "-";
+        } else {
+            realElKwh.innerText = safe(s.realEstKwh).toFixed(0) + " kWh";
+            realElCost.innerText = (safe(s.realEstKwh) * p).toFixed(0) + " Kč";
+        }
+    }
+};
+
+App.updateUserPrice = function() {
+    const priceSlider = document.getElementById('userPriceSlider');
+    if(!priceSlider) return;
+    const newPrice = parseFloat(priceSlider.value);
+    
+    const displayEl = document.getElementById('userPriceDisplay');
+    if (displayEl) displayEl.innerText = newPrice.toFixed(2) + ' Kč';
+    
+    if(window.financeMetricsGlobal && window.financeMetricsGlobal.total) {
+        let yCost = window.financeMetricsGlobal.total.totalEstElKwh * newPrice;
+        document.querySelectorAll('#userYearlyCost').forEach(el => el.innerText = Math.round(yCost).toLocaleString('cs-CZ') + ' Kč');
+    }
+    if(currentStats) {
+        let pCost = currentStats.totalKwh * newPrice;
+        document.querySelectorAll('#userPeriodCost').forEach(el => el.innerText = Math.round(pCost).toLocaleString('cs-CZ') + ' Kč');
+    }
+
+    let label = (currentSelectionMode === 'day') ? (isTodayMode ? 'Dnes' : currentSelectedDate.toLocaleDateString('cs-CZ')) : 
+                ((currentSelectionMode === 'month') ? 'Tento měsíc' : 'Vybrané období');
+    document.querySelectorAll('#userPeriodLabel').forEach(el => el.innerText = label);
+
+    if (typeof App.updateSimulators === 'function') App.updateSimulators();
+    
+    if (currentView === 'cost' && lastWindowData) {
+        App.setView('cost', true);
+    }
+};
 
 App.switchTab = function (tabName, el) {
     const targetTab = document.getElementById('tab-' + tabName);
@@ -611,11 +731,463 @@ App.closeCalendar = function (e) {
     if (!e || e.target.id === 'calendarModal' || e.target.className === 'modal-close') m.classList.remove('open');
 };
 
-// (přesunuto do module-charts.js)
+App.updateChartButtons = function () {
+    const btn1 = document.getElementById('btnGroup1');
+    const btn2 = document.getElementById('btnGroup2');
+    const btnCop = document.getElementById('btnCopView');
+    const btnCost = document.getElementById('btnCostView');
 
-// (přesunuto do module-calendar.js)
+    if (!btn1 || !btn2 || !btnCop || !btnCost) return;
 
-// (přesunuto do module-export.js)
+    // Btn1 label — group1 views: line, bar, thermal (zachovej poslední použitý při jiném view)
+    if (currentView === 'line') btn1.innerText = 'LINE';
+    else if (currentView === 'bar') btn1.innerText = 'BAR';
+    else if (currentView === 'thermal') btn1.innerText = 'TEPLO';
+    // else: zachovej aktuální label (btn1 ukazuje poslední použitý group1 view)
+
+    // Btn2 label — group2 views: agg_days, agg_months
+    if (currentView === 'agg_months') btn2.innerText = 'MĚSÍCE';
+    else btn2.innerText = 'DNY';
+
+    // COP label
+    btnCop.innerText = typeof copViewMode !== 'undefined' && copViewMode === 'monthly' ? 'COP (M)' : 'COP';
+
+    // CENA label
+    btnCost.innerText = typeof costViewMode !== 'undefined' && costViewMode === 'monthly' ? 'CENA (M)' : 'CENA';
+
+    // Active states
+    const allBtns = [btn1, btn2, btnCop, btnCost];
+    allBtns.forEach(b => b.classList.remove('active'));
+
+    if (['line', 'bar', 'thermal'].includes(currentView)) btn1.classList.add('active');
+    else if (['agg_days', 'agg_months'].includes(currentView)) btn2.classList.add('active');
+    else if (currentView === 'agg_cop') btnCop.classList.add('active');
+    else if (currentView === 'cost') btnCost.classList.add('active');
+};
+
+// Cyklické přepínání btn1: line → bar → thermal → line
+App.cycleGroup1 = function () {
+    const order = ['line', 'bar', 'thermal'];
+    const curIdx = order.indexOf(currentView);
+    // Pokud jsme v group1, jdi na další; jinak začni od line
+    const nextIdx = curIdx >= 0 ? (curIdx + 1) % order.length : 0;
+    App.setView(order[nextIdx]);
+};
+
+// Cyklické přepínání btn2: agg_days → agg_months → agg_days
+App.cycleGroup2 = function () {
+    App.setView(currentView === 'agg_days' ? 'agg_months' : 'agg_days');
+};
+
+App.setUserChartView = function(type) {
+    if (type === 'days') App.setView('agg_days');
+    if (type === 'months') App.setView('agg_months');
+    if (type === 'cop') {
+        copViewMode = 'monthly';
+        App.setView('agg_cop');
+    }
+    if (type === 'cost') {
+        costViewMode = 'monthly';
+        App.setView('cost');
+    }
+};
+
+// ─── 6. KALENDÁŘ A ČASOVÁ OSA ───────────────────────────────────────────────
+App.changeCalMonth = function (delta) {
+    calDate.setDate(1);
+    calDate.setMonth(calDate.getMonth() + delta);
+    try { App.renderCalendar(); } catch (e) { }
+};
+
+App.setCalMode = function(mode, btn) {
+    calendarDisplayMode = mode;
+    document.querySelectorAll('.cal-modes .view-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    App.renderCalendar();
+};
+
+App.renderCalendar = function () {
+    const label = document.getElementById('calMonthLabel');
+    const grid = document.getElementById('calDays');
+    if (!label || !grid) return;
+
+    // Synchronizace aktivního tlačítka podle calendarDisplayMode
+    document.querySelectorAll('.cal-modes .view-btn').forEach(b => {
+        const m = b.getAttribute('onclick');
+        b.classList.toggle('active', m && m.includes("'" + calendarDisplayMode + "'"));
+    });
+
+    const year = calDate.getFullYear(), month = calDate.getMonth();
+    const monthNames = ["LEDEN", "ÚNOR", "BŘEZEN", "DUBEN", "KVĚTEN", "ČERVEN", "ČERVENEC", "SRPEN", "ZÁŘÍ", "ŘÍJEN", "LISTOPAD", "PROSINEC"];
+    
+    label.innerHTML = `<span style="cursor:pointer; text-decoration:underline;" onclick="App.selectMonthFromCalendar(${year}, ${month})">${monthNames[month]}</span> <span style="font-weight: 800;">${year}</span>`;
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    grid.innerHTML = '';
+
+    for (let i = 0; i < startOffset; i++) {
+        const d = document.createElement('div');
+        d.className = 'cal-day empty';
+        grid.appendChild(d);
+    }
+
+    let selStr = "";
+    if (calendarTarget === 'main') {
+        if (currentSelectionMode === 'day') {
+            selStr = `${currentSelectedDate.getFullYear()}-${String(currentSelectedDate.getMonth() + 1).padStart(2, '0')}-${String(currentSelectedDate.getDate()).padStart(2, '0')}`;
+        }
+    } else if (calendarTarget === 'exportMonth') {
+        selStr = "";
+    } else {
+        const targetEl = document.getElementById(calendarTarget);
+        if (targetEl && targetEl.value) {
+            const d = new Date(targetEl.value);
+            selStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        }
+    }
+
+    let maxCost = 0;
+    if (calendarDisplayMode === 'cost' && typeof dailyStatsGlobal !== 'undefined') {
+        dailyStatsGlobal.forEach(s => { if (s.value > maxCost) maxCost = s.value; });
+    }
+
+    for (let day = 1; day <= daysInMonth; day++) {
+        const d = document.createElement('div');
+        d.className = 'cal-day';
+
+        const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        if (key === selStr) d.classList.add('selected');
+
+        let dayStat = (typeof dailyStatsGlobal !== 'undefined') ? dailyStatsGlobal.find(s => s.dateStr === key) : null;
+        let hCode = (typeof dailyHealthMap !== 'undefined' && dailyHealthMap[key]) ? (dailyHealthMap[key].code || dailyHealthMap[key]) : null;
+
+        let contentHtml = `<span class="cal-num">${day}</span>`;
+
+        if (calendarDisplayMode === 'temp' && dayStat && dayStat.tempCount > 0) {
+            let avgT = dayStat.tempSum / dayStat.tempCount;
+            let r, g, b;
+            if (avgT < 0) {
+                let intensity = Math.max(0, 1 - (Math.abs(avgT) / 20));
+                r = Math.round(150 + (105 * intensity));
+                g = Math.round(200 + (55 * intensity));
+                b = 255;
+            } else {
+                let intensity = Math.min(1, avgT / 25);
+                r = 255;
+                g = Math.round(255 - (200 * intensity));
+                b = Math.round(255 - (200 * intensity));
+            }
+            d.style.background = `rgb(${r},${g},${b})`;
+            d.style.borderColor = `rgba(0,0,0,0.1)`;
+            let textColor = (avgT > 15) ? 'white' : '#0c0f17';
+            
+            contentHtml = `<span class="cal-num" style="color:${textColor}; text-shadow: 0 1px 3px rgba(0,0,0,0.3);">${day}</span>`;
+            contentHtml += `<span style="font-size: 0.55rem; font-weight: 800; margin-top: 1px; color: ${textColor}; opacity: 0.8;">${avgT.toFixed(1)}°</span>`;
+
+        } else if (calendarDisplayMode === 'cost' && dayStat) {
+            let intensity = maxCost > 0 ? (dayStat.value / maxCost) : 0;
+            let r = Math.round(34 + (10 * intensity));
+            let g = Math.round(197 - (100 * intensity));
+            let b = Math.round(94 + (20 * intensity));
+            
+            d.style.background = `rgba(${r},${g},${b}, ${0.2 + (0.8 * intensity)})`;
+            d.style.borderColor = `rgba(${r},${g},${b}, 0.5)`;
+            
+            contentHtml = `<span class="cal-num" style="color:white;">${day}</span>`;
+            contentHtml += `<span style="font-size: 0.5rem; font-weight: 800; margin-top: 1px; color: rgba(255,255,255,0.7);">${Math.round(dayStat.value)} Kč</span>`;
+            
+        } else if (calendarDisplayMode === 'health' && hCode) {
+            let bgCol, txtCol = 'white';
+            if (hCode === 'green') bgCol = 'rgba(34, 197, 94, 0.6)';
+            else if (hCode === 'yellow') bgCol = 'rgba(234, 179, 8, 0.6)';
+            else if (hCode === 'orange') bgCol = 'rgba(249, 115, 22, 0.6)';
+            else if (hCode === 'red') bgCol = 'rgba(239, 68, 68, 0.6)';
+            else { bgCol = 'transparent'; txtCol = 'rgba(238,241,247,0.58)'; }
+
+            d.style.background = bgCol;
+            d.style.borderColor = 'rgba(255,255,255,0.1)';
+            
+            contentHtml = `<span class="cal-num" style="color:${txtCol}; text-shadow: 0 1px 3px rgba(0,0,0,0.3);">${day}</span>`;
+        } else {
+            contentHtml = `<span class="cal-num">${day}</span>`;
+        }
+
+        if (key === selStr && (calendarDisplayMode === 'temp' || calendarDisplayMode === 'cost' || calendarDisplayMode === 'health')) {
+            d.style.boxShadow = '0 0 15px rgba(255,255,255,0.8)';
+            d.style.transform = 'scale(1.1)';
+            d.style.zIndex = '10';
+            d.style.borderColor = 'white';
+        }
+
+        d.innerHTML = contentHtml;
+        d.onclick = () => { App.selectDateFromCalendar(year, month, day); };
+        grid.appendChild(d);
+    }
+};
+
+App.selectMonthFromCalendar = function(y, m) {
+    if (calendarTarget === 'main') {
+        currentSelectedDate = new Date(y, m, 1);
+        currentSelectionMode = 'month';
+        isTodayMode = false;
+        App.updateDateLabel();
+        
+        App.updateChartButtons();
+        
+        App.closeCalendar(null);
+        App.runPipeline();
+    } else if (calendarTarget === 'exportMonth' || calendarTarget === 'exportStart' || calendarTarget === 'exportEnd') {
+        const startCol = document.getElementById('exportStartBtn').parentElement;
+        const endCol = document.getElementById('exportEndBtn').parentElement;
+        const startLabel = startCol.querySelector('label');
+        
+        startLabel.innerText = 'MĚSÍC';
+        endCol.style.display = 'none';
+        document.getElementById('exportStartBtn').onclick = () => App.openCalendar('exportMonth');
+
+        const startD = new Date(y, m, 1);
+        const endD = new Date(y, m + 1, 0);
+        
+        const sStr = startD.getFullYear() + '-' + String(startD.getMonth() + 1).padStart(2, '0') + '-' + String(startD.getDate()).padStart(2, '0');
+        const eStr = endD.getFullYear() + '-' + String(endD.getMonth() + 1).padStart(2, '0') + '-' + String(endD.getDate()).padStart(2, '0');
+        
+        document.getElementById('exportStart').value = sStr;
+        document.getElementById('exportEnd').value = eStr;
+        
+        const mNames = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
+        document.getElementById('exportStartBtn').innerText = `${mNames[m]} ${y}`;
+        
+        App.updateExportOptions();
+        App.closeCalendar(null);
+    }
+};
+
+App.selectDateFromCalendar = function (y, m, d) {
+    if (calendarTarget === 'main') {
+        currentSelectedDate = new Date(y, m, d);
+        currentSelectionMode = 'day';
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        isTodayMode = currentSelectedDate.getTime() === today.getTime();
+        App.updateDateLabel();
+        
+        App.updateChartButtons();
+        
+        App.closeCalendar(null);
+        App.runPipeline();
+    } else {
+        const selectedStrIso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const displayStr = `${d}. ${m + 1}. ${y}`;
+
+        if (calendarTarget === 'exportMonth') {
+            const startCol = document.getElementById('exportStartBtn').parentElement;
+            const endCol = document.getElementById('exportEndBtn').parentElement;
+            const startLabel = startCol.querySelector('label');
+            
+            startLabel.innerText = 'OD';
+            endCol.style.display = 'flex';
+            document.getElementById('exportStartBtn').onclick = () => App.openCalendar('exportStart');
+            
+            document.getElementById('exportStart').value = selectedStrIso;
+            document.getElementById('exportStartBtn').innerText = displayStr;
+            document.getElementById('exportEnd').value = selectedStrIso;
+            document.getElementById('exportEndBtn').innerText = displayStr;
+            
+        } else {
+            const hiddenInput = document.getElementById(calendarTarget);
+            const visibleBtn = document.getElementById(calendarTarget + 'Btn');
+            
+            if (hiddenInput) hiddenInput.value = selectedStrIso;
+            if (visibleBtn) visibleBtn.innerText = displayStr;
+        }
+        
+        App.updateExportOptions();
+        App.closeCalendar(null);
+    }
+};
+
+App.updateDateLabel = function () {
+    const nav = document.getElementById('navLabel');
+    const btnNext = document.getElementById('btnNextDay');
+    const btnNow = document.getElementById('btnNowMini');
+
+    if (nav) {
+        if (currentSelectionMode === 'day') {
+            nav.innerText = isTodayMode ? "DNES (24h)" : currentSelectedDate.toLocaleDateString('cs-CZ');
+        } else if (currentSelectionMode === 'month') {
+            const mNames = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
+            nav.innerText = `${mNames[currentSelectedDate.getMonth()]} ${currentSelectedDate.getFullYear()}`;
+        }
+    }
+    
+    if (btnNext) {
+        if (currentSelectionMode === 'day') {
+            btnNext.disabled = isTodayMode;
+        } else if (currentSelectionMode === 'month') {
+            const today = new Date();
+            btnNext.disabled = (currentSelectedDate.getFullYear() === today.getFullYear() && currentSelectedDate.getMonth() === today.getMonth());
+        }
+    }
+    
+    if (btnNow) {
+        btnNow.style.display = (isTodayMode && currentSelectionMode === 'day') ? 'none' : 'inline-block';
+    }
+};
+
+App.resetToToday = function () {
+    currentSelectionMode = 'day';
+    isTodayMode = true;
+    currentSelectedDate = new Date();
+    
+    App.updateChartButtons();
+    App.smartNav(0);
+};
+
+App.smartNav = function (delta) {
+    if (currentSelectionMode === 'day') {
+        if (isTodayMode && delta < 0) {
+            isTodayMode = false;
+            currentSelectedDate = new Date();
+            currentSelectedDate.setHours(0, 0, 0, 0);
+            currentSelectedDate.setDate(currentSelectedDate.getDate() - 1);
+        } else if (!isTodayMode) {
+            currentSelectedDate.setDate(currentSelectedDate.getDate() + delta);
+            if (currentSelectedDate >= new Date().setHours(0, 0, 0, 0)) {
+                isTodayMode = true;
+                currentSelectedDate = new Date();
+            }
+        }
+    } else if (currentSelectionMode === 'month') {
+        currentSelectedDate.setMonth(currentSelectedDate.getMonth() + delta);
+        const today = new Date();
+        if (currentSelectedDate.getFullYear() > today.getFullYear() || (currentSelectedDate.getFullYear() === today.getFullYear() && currentSelectedDate.getMonth() > today.getMonth())) {
+            currentSelectedDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        }
+    }
+
+    App.updateDateLabel();
+    App.updateChartButtons();
+    
+    App.runPipeline();
+};
+
+// ─── 7. POKROČILÝ EXPORT DAT ────────────────────────────────────────────────
+App.updateExportOptions = function() {}; // Stub — hookuje budoucí logiku při výběru exportního rozsahu
+
+App.openExport = function () {
+    const m = document.getElementById('exportModal');
+    if (!m) return;
+
+    const startCol = document.getElementById('exportStartBtn').parentElement;
+    const endCol = document.getElementById('exportEndBtn').parentElement;
+    const startLabel = startCol.querySelector('label');
+    
+    let startD = new Date(currentSelectedDate);
+    let endD = new Date(currentSelectedDate);
+    
+    if (currentSelectionMode === 'month') {
+        startD.setDate(1);
+        endD = new Date(startD.getFullYear(), startD.getMonth() + 1, 0);
+        
+        startLabel.innerText = 'MĚSÍC';
+        endCol.style.display = 'none';
+        document.getElementById('exportStartBtn').onclick = () => App.openCalendar('exportMonth');
+        
+        const mNames = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
+        document.getElementById('exportStartBtn').innerText = `${mNames[startD.getMonth()]} ${startD.getFullYear()}`;
+    } else {
+        startLabel.innerText = 'OD';
+        endCol.style.display = 'flex';
+        document.getElementById('exportStartBtn').onclick = () => App.openCalendar('exportStart');
+        
+        let sDisp = startD.getDate() + '. ' + (startD.getMonth() + 1) + '. ' + startD.getFullYear();
+        let eDisp = endD.getDate() + '. ' + (endD.getMonth() + 1) + '. ' + endD.getFullYear();
+        
+        document.getElementById('exportStartBtn').innerText = sDisp;
+        document.getElementById('exportEndBtn').innerText = eDisp;
+    }
+    
+    let sStr = startD.getFullYear() + '-' + String(startD.getMonth() + 1).padStart(2, '0') + '-' + String(startD.getDate()).padStart(2, '0');
+    let eStr = endD.getFullYear() + '-' + String(endD.getMonth() + 1).padStart(2, '0') + '-' + String(endD.getDate()).padStart(2, '0');
+    
+    document.getElementById('exportStart').value = sStr;
+    document.getElementById('exportEnd').value = eStr;
+
+    App.updateExportOptions();
+
+    const ta = document.getElementById('exportTextarea');
+    if (ta) ta.value = '';
+
+    m.classList.add('open');
+    App.generateExport();
+};
+
+App.closeExport = function (e) {
+    const m = document.getElementById('exportModal');
+    if (!m) return;
+    if (!e || e.target.id === 'exportModal' || e.target.className === 'modal-close') m.classList.remove('open');
+};
+
+App.copyExport = function () {
+    if (!App.lastExportClipboard) return;
+    
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(App.lastExportClipboard).then(() => {
+            if(window.App && typeof App.showError === 'function') App.showError("Zkopírováno (připraveno pro Excel)!"); 
+        }).catch(err => {
+            console.error('Kopírování selhalo', err);
+        });
+    } else {
+        const ta = document.getElementById('exportTextarea');
+        if (ta) {
+            const originalValue = ta.value;
+            ta.value = App.lastExportClipboard;
+            ta.select();
+            ta.setSelectionRange(0, 9999999);
+            try {
+                document.execCommand('copy');
+                if(window.App && typeof App.showError === 'function') App.showError("Zkopírováno (připraveno pro Excel)!"); 
+            } catch(err) {
+                console.error('Kopírování selhalo', err);
+            }
+            ta.value = originalValue;
+        }
+    }
+};
+
+App.shareExport = function () {
+    if (!App.lastExportCsv) {
+        if(window.App && typeof App.showError === 'function') App.showError("Žádná data ke sdílení.");
+        return;
+    }
+    
+    let fileDate = document.getElementById('exportStart').value || "Data";
+    const fileName = `TC_Expert_Export_${fileDate}.csv`;
+    
+    const blob = new Blob(['\ufeff' + App.lastExportCsv], { type: 'text/csv;charset=utf-8;' });
+    const file = new File([blob], fileName, { type: 'text/csv' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({
+            title: 'TČ Expert PRO - Export',
+            files: [file]
+        }).catch(err => { 
+            console.log('Sdílení zrušeno nebo selhalo', err); 
+        });
+    } else {
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', fileName);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        if(window.App && typeof App.showError === 'function') App.showError("Staženo jako soubor CSV.");
+    }
+};
 
 App.initializeInputs = function () {
     const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
@@ -675,7 +1247,54 @@ App.initializeInputs = function () {
 };
 
 
-// (přesunuto do module-api.js)
+// ─── AUTOMATICKÁ AKTUALIZACE evanTemps Z OPEN-METEO ───────────────────────
+// Volá se z updateConfig() pokud uživatel změní locLat/locLon.
+// Stáhne průměrné měsíční teploty za posledních 5 let pro novou lokaci.
+App.updateEvanTemps = async function(lat, lon) {
+    const statusEl = document.getElementById('statusFreq');
+    try {
+        const endYear  = new Date().getFullYear();
+        const startYear = endYear - 5;
+        const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${startYear}-01-01&end_date=${endYear}-12-31&daily=temperature_2m_mean&timeformat=unixtime`;
+
+        if (statusEl) { statusEl.innerText = 'Stahuji průměrné teploty pro novou lokaci…'; statusEl.style.color = 'var(--accent)'; }
+
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+        if (!data.daily || !data.daily.time) throw new Error('Prázdná odpověď');
+
+        const sums   = new Array(12).fill(0);
+        const counts = new Array(12).fill(0);
+        data.daily.time.forEach((ts, i) => {
+            const m = new Date(ts * 1000).getMonth();
+            const t = data.daily.temperature_2m_mean[i];
+            if (t !== null && Number.isFinite(t)) { sums[m] += t; counts[m]++; }
+        });
+
+        CONFIG.evanTemps = sums.map((s, i) =>
+            counts[i] > 0 ? Math.round(s / counts[i] * 10) / 10 : CONFIG.evanTemps[i]
+        );
+
+        // Aktualizuj input pokud existuje
+        const evanEl = document.getElementById('evanTemps');
+        if (evanEl) evanEl.value = CONFIG.evanTemps.join(', ');
+
+        if (statusEl) { statusEl.innerText = 'Teploty lokace aktualizovány — přepočítávám…'; statusEl.style.color = 'var(--success)'; }
+
+        // Invaliduj cache a přepočítej
+        if (typeof dayCache !== 'undefined') dayCache = {};
+        if (typeof worker !== 'undefined' && worker) {
+            workerHasData = false;
+            worker.postMessage({ type: 'CLEAR_CACHE' });
+        }
+        App.runPipeline();
+    } catch(e) {
+        console.warn('updateEvanTemps selhalo:', e);
+        if (statusEl) { statusEl.innerText = 'Lokace změněna — teploty nelze stáhnout, pokračuji s původními.'; statusEl.style.color = 'var(--warning)'; }
+        App.runPipeline(); // pokračuj i bez nových evanTemps
+    }
+};
 
 App.updateConfig = function () {
     const getInt = (id, fallback = 0) => { const el = document.getElementById(id); if (!el) return fallback; const v = parseInt(el.value, 10); return Number.isFinite(v) ? v : fallback; };
