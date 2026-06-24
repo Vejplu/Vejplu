@@ -2512,8 +2512,12 @@ if (type === 'GENERATE_EXPORT') {
     let days = (maxTs - minTs) / 86400; if (days < 1) days = 1;
     const avgTuvKwh = (globTuvWh / 1000) / days;
     const avgTuvThermalWh = days > 0 ? globTuvTpWh / days : 0;
-    const avgOutTempLog = tempCount > 0 ? (tempSum / tempCount) : 10;
-    const isSummerData = avgOutTempLog > config.heatingThreshold || (globTWh > 0 && (globHeatWh / globTWh) < 0.3);
+    // „Letní data" = chybí model budovy (fyzika) nebo je topení zanedbatelné.
+    // Roční odhad stojí na fyzice budovy + klimatických normálech (evanTemps),
+    // takže NEZÁVISÍ na tom, zda log obsahuje léto. Dřív se chybně posuzovalo
+    // podle průměrné teploty CELÉHO logu — ta u datasetu zima+léto klamně
+    // přeroste práh a zablokuje odhad, i když je k dispozici celá zima dat.
+    const isSummerData = !memCache.physics || (globTWh > 0 && (globHeatWh / globTWh) < 0.3);
 
     let totalRunTimeHours = 0;
     Object.values(sStats).forEach(b => { totalRunTimeHours += (b.runTimeHours || 0); });
@@ -4426,8 +4430,9 @@ const processSeason = (s) => {
     
     let avgTuvThermalWh = (s.tuvTpWh || 0) / days;
     
-    const avgOutTempLog = s.tempCount > 0 ? (s.tempSum / s.tempCount) : 10;
-    const isSummerData = avgOutTempLog > config.heatingThreshold || (s.tWh > 0 && (s.hWh / s.tWh) < 0.3);
+    // Viz globální isSummerData: posuzuj podle modelu budovy + obsahu topení
+    // v reálných datech, NE podle průměrné teploty celého období.
+    const isSummerData = !physics || (s.tWh > 0 && (s.hWh / s.tWh) < 0.3);
 
     let yearlyHeatWhEl = 0; let yearlyHeatWhThermal = 0;
     let yearlyTuvWhEl = 0; let yearlyTuvWhThermal = 0;
