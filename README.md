@@ -17,20 +17,7 @@ Vyvíjím aplikaci (prozatím neveřejnou) zaměřenou na **analýzu efektivity 
 
 ### 🛠️ Zájmy a nástroje
 <div align="left">
-  <!-- Ukázka odznaků Shields.io (lze upravit podle tvých preferencí) -->
   <img src="https://img.shields.io/badge/AI_Assisted_Dev-000000?style=for-the-badge&logo=openai&logoColor=white" />
   <img src="https://img.shields.io/badge/Vibe_Coding-FF69B4?style=for-the-badge&logo=lightning&logoColor=white" />
   <img src="https://img.shields.io/badge/Web_Apps-092E20?style=for-the-badge&logo=googlechrome&logoColor=white" />
 </div>
-
----
-
-<!-- Rozbalovací sekce s dynamickými statistikami -->
-<details>
-  <summary>📊 <b>Moje GitHub statistiky (klikni pro rozbalení)</b></summary>
-  <br>
-  <div align="center">
-    <!-- Nezapomeň změnit 'Vejplu' za své skutečné GitHub jméno, pokud se liší -->
-    <img src="https://github-readme-stats.vercel.app/api?username=Vejplu&show_icons=true&theme=radical&hide_border=true" alt="GitHub Stats" />
-  </div>
-</details>
