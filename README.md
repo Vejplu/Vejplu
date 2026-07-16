@@ -13,7 +13,7 @@
 Praktikuji **vibe coding** a baví mě moderní způsoby tvorby aplikací. Mým dlouhodobým cílem je nesoustředit se pouze na jednu oblast, ale postupně navrhovat a programovat další software napříč nejrůznějšími obory.
 
 ### ⚡ Na čem aktuálně pracuji
-Vyvíjím neveřejnou aplikaci zaměřenou na **analýzu efektivity tepelného čerpadla**. Aplikace zpracovává reálná data z externího chytrého měřiče a pomáhá optimalizovat jeho chod a náklady.
+Vyvíjím aplikaci (prozatím neveřejnou) zaměřenou na **analýzu efektivity tepelného čerpadla**. Aplikace zpracovává reálná data z externího chytrého měřiče a pomáhá optimalizovat jeho chod a náklady.
 
 ### 🛠️ Zájmy a nástroje
 <div align="left">
